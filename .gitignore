@@ -210,3 +210,16 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
+
+
+# Ignore compiled artifacts in tests
+/tests/**/*.js
+/tests/**/*.js.map
+/tests/**/*.d.ts
+/tests/**/*.d.ts.map
+
+# Ignore accidental compiled vitest config outputs
+/vitest.config.js
+/vitest.config.d.ts
+/vitest.config.js.map
+/vitest.config.d.ts.map
