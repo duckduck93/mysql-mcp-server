@@ -1,0 +1,22 @@
+{
+  "name": "mysql-mcp-server",
+  "version": "1.0.0",
+  "description": "mysql mcp server",
+  "keywords": [
+    "mcp"
+  ],
+  "license": "ISC",
+  "author": "duckduck",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.24.3",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.2",
+    "typescript": "^5.9.3"
+  }
+}
