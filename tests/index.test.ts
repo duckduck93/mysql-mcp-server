@@ -31,7 +31,7 @@ vi.mock('../src/tools/explain.js', () => makeRegistrar('registerExplainTool'));
 vi.mock('../src/tools/version.js', () => makeRegistrar('registerVersionTool'));
 
 const connectSpy = vi.fn().mockResolvedValue(undefined);
-vi.mock('@modelcontextprotocol/sdk/dist/esm/server/mcp.js', () => ({
+vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
   McpServer: class {
     name: string; version: string;
     constructor(opts: any) { this.name = opts.name; this.version = opts.version; }
@@ -39,7 +39,7 @@ vi.mock('@modelcontextprotocol/sdk/dist/esm/server/mcp.js', () => ({
     registerTool = vi.fn();
   }
 }));
-vi.mock('@modelcontextprotocol/sdk/dist/esm/server/stdio.js', () => ({
+vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   StdioServerTransport: class { constructor() {} }
 }));
 
@@ -54,13 +54,16 @@ describe('index.ts bootstrap', () => {
     Object.values(registerSpies).forEach((s: any) => s.mockClear());
     connectSpy.mockClear();
     dbClose.mockClear();
+    // ensure fresh module execution for each test
+    // @ts-ignore vitest provides resetModules similar to jest
+    if ((vi as any).resetModules) {
+      (vi as any).resetModules();
+    }
   });
 
   it('creates server, registers tools, connects transport and wires shutdown handlers', async () => {
     // Dynamic import triggers main()
-    await vi.isolateModulesAsync(async () => {
-      await import('../src/index.js');
-    });
+    await import('../src/index.js');
 
     // All register*Tool functions should be called once
     expect(registerSpies.registerQueryTool).toHaveBeenCalledTimes(1);
@@ -86,9 +89,7 @@ describe('index.ts bootstrap', () => {
 
   it('handles fatal error path and exits with code 1', async () => {
     connectSpy.mockRejectedValueOnce(new Error('boom'));
-    await vi.isolateModulesAsync(async () => {
-      await import('../src/index.js');
-    });
+    await import('../src/index.js');
     expect(processExit).toHaveBeenCalledWith(1);
     expect(consoleError).toHaveBeenCalled();
   });

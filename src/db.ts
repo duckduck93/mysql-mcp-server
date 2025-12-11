@@ -86,8 +86,12 @@ export class Database {
 
   async showIndexes(table: string) {
     // Use information_schema.statistics for structured data
-    const sql = `SELECT INDEX_NAME as name, SEQ_IN_INDEX as seq, COLUMN_NAME as col, \n      NON_UNIQUE as nonUnique, INDEX_COMMENT as comment, INDEX_TYPE as \`type\`, \n      IFNULL(VISIBLE, 'YES') as visible\n      FROM information_schema.statistics\n      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?\n      ORDER BY INDEX_NAME, SEQ_IN_INDEX`;
-    const { rows } = await this.queryRows(sql, [table]);
+    const sql = `SELECT INDEX_NAME as name, SEQ_IN_INDEX as seq, COLUMN_NAME as col, \n      NON_UNIQUE as nonUnique, INDEX_COMMENT as comment, INDEX_TYPE as \`type\`\n      FROM information_schema.statistics\n      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?\n      ORDER BY INDEX_NAME, SEQ_IN_INDEX`;
+    let { rows } = await this.queryRows(sql, [table]);
+    // Some drivers/tests may return nested arrays like [plan] instead of plan
+    if (Array.isArray(rows) && Array.isArray((rows as any[])[0])) {
+      rows = (rows as any[])[0] as any[];
+    }
     const map = new Map<string, { name: string; columns: string[]; unique: boolean; visible?: boolean; comment?: string; type?: string }>();
     for (const r of rows as any[]) {
       const key = r.name as string;
@@ -99,7 +103,10 @@ export class Database {
   }
 
   async explain(sql: string, params: any[] = []) {
-    const { rows } = await this.queryRows(`EXPLAIN ${sql}`, params);
+    let { rows } = await this.queryRows(`EXPLAIN ${sql}`, params);
+    if (Array.isArray(rows) && Array.isArray((rows as any[])[0])) {
+      rows = (rows as any[])[0] as any[];
+    }
     return rows as any[];
   }
 
