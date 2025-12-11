@@ -23,4 +23,16 @@ describe('tools/explain', () => {
     expect(db.explain).toHaveBeenCalledWith('SELECT * FROM t', [1]);
     expect(res.structuredContent).toEqual({ plan });
   });
+
+  it('logs to stderr and rethrows on error', async () => {
+    const server = new FakeServer();
+    const db = { explain: vi.fn().mockRejectedValue(new Error('ex-fail')) } as any;
+    registerExplainTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.explain.handler({ sql: 'SELECT * FROM t', params: [1] })).rejects.toThrow('ex-fail');
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool explain failed');
+    expect(log).toContain('SELECT * FROM t');
+    spy.mockRestore();
+  });
 });

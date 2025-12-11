@@ -22,13 +22,21 @@ export function registerQueryTool(server: McpServer, db: Database, defaults: { m
     inputSchema: queryInput,
     outputSchema: queryOutput,
   }, async ({ sql, params, maxRows, timeoutMs }: { sql: string; params?: any[] | undefined; maxRows?: number | undefined; timeoutMs?: number | undefined }) => {
-    const res = await db.queryRows(sql, params ?? [], {
-      maxRows: maxRows ?? defaults.maxRows,
-      timeoutMs: timeoutMs ?? defaults.timeoutMs,
-    });
-    return {
-      content: [{ type: 'text', text: JSON.stringify(res, null, 2) }],
-      structuredContent: res,
-    } as any;
+    try {
+      const res = await db.queryRows(sql, params ?? [], {
+        maxRows: maxRows ?? defaults.maxRows,
+        timeoutMs: timeoutMs ?? defaults.timeoutMs,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(res, null, 2) }],
+        structuredContent: res,
+      } as any;
+    } catch (err: any) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      const ts = new Date().toISOString();
+      const input = { sql, params: params ?? [], maxRows: maxRows ?? defaults.maxRows, timeoutMs: timeoutMs ?? defaults.timeoutMs };
+      process.stderr.write(`[${ts}] tool query failed: ${e.message}\ninput: ${JSON.stringify(input)}\nstack: ${e.stack ?? 'no-stack'}\n`);
+      throw err;
+    }
   });
 }

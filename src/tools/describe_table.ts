@@ -26,7 +26,15 @@ export function registerDescribeTableTool(server: McpServer, db: Database) {
     inputSchema: describeTableInput,
     outputSchema: describeTableOutput,
   }, async ({ table }: { table: string }) => {
-    const res = await db.describeTable(table);
-    return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;
+    try {
+      const res = await db.describeTable(table);
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;
+    } catch (err: any) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      const ts = new Date().toISOString();
+      const input = { table };
+      process.stderr.write(`[${ts}] tool describe_table failed: ${e.message}\ninput: ${JSON.stringify(input)}\nstack: ${e.stack ?? 'no-stack'}\n`);
+      throw err;
+    }
   });
 }

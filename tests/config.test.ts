@@ -56,4 +56,28 @@ describe('config.ts', () => {
     expect(cfg.ssl?.cert?.toString()).toBe('CERT');
     expect(cfg.ssl?.key?.toString()).toBe('KEY');
   });
+
+  it('remaps localhost to host.docker.internal when running in Docker (default auto)', async () => {
+    const env = { ...baseEnv(), MYSQL_HOST: 'localhost', MYSQL_IN_DOCKER: '1' } as any;
+    const cfg = loadConfig(env);
+    expect(cfg.MYSQL_HOST).toBe('host.docker.internal');
+  });
+
+  it('does not remap when MYSQL_HOST_RESOLVE=off', async () => {
+    const env = { ...baseEnv(), MYSQL_HOST: '127.0.0.1', MYSQL_HOST_RESOLVE: 'off', MYSQL_IN_DOCKER: '1' } as any;
+    const cfg = loadConfig(env);
+    expect(cfg.MYSQL_HOST).toBe('127.0.0.1');
+  });
+
+  it('does not remap when not running in Docker', async () => {
+    const env = { ...baseEnv(), MYSQL_HOST: 'localhost', MYSQL_IN_DOCKER: '0' } as any;
+    const cfg = loadConfig(env);
+    expect(cfg.MYSQL_HOST).toBe('localhost');
+  });
+
+  it('uses MYSQL_HOST_DOCKER override when provided', async () => {
+    const env = { ...baseEnv(), MYSQL_HOST: 'localhost', MYSQL_IN_DOCKER: '1', MYSQL_HOST_DOCKER: 'docker.host.test' } as any;
+    const cfg = loadConfig(env);
+    expect(cfg.MYSQL_HOST).toBe('docker.host.test');
+  });
 });

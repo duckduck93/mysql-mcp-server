@@ -31,4 +31,16 @@ describe('tools/execute', () => {
     await server.tools.execute.handler({ sql: 'DELETE FROM t WHERE id=?', params: [5], timeoutMs: 9 });
     expect(db.execute).toHaveBeenCalledWith('DELETE FROM t WHERE id=?', [5], { timeoutMs: 9 });
   });
+
+  it('logs to stderr and rethrows on error', async () => {
+    const server = new FakeServer();
+    const db = { execute: vi.fn().mockRejectedValue(new Error('boom')) } as any;
+    registerExecuteTool(server as any, db, { timeoutMs: 500 });
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.execute.handler({ sql: 'UPDATE t SET a=1' })).rejects.toThrow('boom');
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool execute failed');
+    expect(log).toContain('UPDATE t SET a=1');
+    spy.mockRestore();
+  });
 });

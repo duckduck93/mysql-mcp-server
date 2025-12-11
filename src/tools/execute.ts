@@ -21,10 +21,18 @@ export function registerExecuteTool(server: McpServer, db: Database, defaults: {
     inputSchema: executeInput,
     outputSchema: executeOutput,
   }, async ({ sql, params, timeoutMs }: { sql: string; params?: any[] | undefined; timeoutMs?: number | undefined }) => {
-    const res = await db.execute(sql, params ?? [], { timeoutMs: timeoutMs ?? defaults.timeoutMs });
-    return {
-      content: [{ type: 'text', text: JSON.stringify(res, null, 2) }],
-      structuredContent: res,
-    } as any;
+    try {
+      const res = await db.execute(sql, params ?? [], { timeoutMs: timeoutMs ?? defaults.timeoutMs });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(res, null, 2) }],
+        structuredContent: res,
+      } as any;
+    } catch (err: any) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      const ts = new Date().toISOString();
+      const input = { sql, params: params ?? [], timeoutMs: timeoutMs ?? defaults.timeoutMs };
+      process.stderr.write(`[${ts}] tool execute failed: ${e.message}\ninput: ${JSON.stringify(input)}\nstack: ${e.stack ?? 'no-stack'}\n`);
+      throw err;
+    }
   });
 }

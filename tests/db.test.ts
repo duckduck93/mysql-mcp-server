@@ -48,6 +48,14 @@ describe('db.ts', () => {
     expect(res.elapsedMs).toBe(5);
   });
 
+  it('queryRows resolves before timeout (covers withTimeout resolve path)', async () => {
+    const rows = [{ a: 1 }];
+    const fields = [{ name: 'a', type: 3 }];
+    setExecuteImpl(vi.fn().mockResolvedValue([rows, fields]));
+    const res = await db.queryRows('SELECT 1', [], { timeoutMs: 1000 });
+    expect(res.rows).toEqual(rows);
+  });
+
   it('queryRows handles undefined fields and no truncation', async () => {
     const rows = [{ a: 1 }];
     setExecuteImpl(vi.fn().mockResolvedValue([rows, undefined]));
@@ -69,6 +77,13 @@ describe('db.ts', () => {
     vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValueOnce(3);
     const res = await db.execute('UPDATE x SET a=1');
     expect(res).toEqual({ affectedRows: 2, insertId: 7, warningStatus: 0, elapsedMs: 3 });
+  });
+
+  it('execute resolves before timeout (covers withTimeout resolve path)', async () => {
+    const result = { affectedRows: 1, insertId: 0, warningStatus: 0 };
+    setExecuteImpl(vi.fn().mockResolvedValue([result]));
+    const res = await db.execute('UPDATE x SET a=1', [], { timeoutMs: 1000 });
+    expect(res.affectedRows).toBe(1);
   });
 
   it('execute timeout rejects', async () => {
@@ -134,5 +149,14 @@ describe('db.ts', () => {
     setExecuteImpl(vi.fn().mockResolvedValue([[ [{ version: '8.0.x' }], [] ][0]]));
     const res = await db.version();
     expect(res).toEqual({ version: '8.0.x' });
+  });
+
+  it('constructor passes timezone and charset to mysql2 createPool', async () => {
+    const cfg = { ...baseCfg, MYSQL_TIMEZONE: '+00:00', MYSQL_CHARSET: 'utf8mb4' } as any;
+    const { createPool } = mysqlModule.default as any;
+    (createPool as any).mockClear();
+    const localDb = createDatabase(cfg);
+    expect(createPool).toHaveBeenCalledWith(expect.objectContaining({ timezone: '+00:00', charset: 'utf8mb4' }));
+    await localDb.close();
   });
 });

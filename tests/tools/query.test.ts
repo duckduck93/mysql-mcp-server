@@ -30,4 +30,16 @@ describe('tools/query', () => {
     await server.tools.query.handler({ sql: 'SELECT ? as x', params: [5], maxRows: 10, timeoutMs: 20 });
     expect(db.queryRows).toHaveBeenCalledWith('SELECT ? as x', [5], { maxRows: 10, timeoutMs: 20 });
   });
+
+  it('logs to stderr and rethrows on error', async () => {
+    const server = new FakeServer();
+    const db = { queryRows: vi.fn().mockRejectedValue(new Error('q-fail')) } as any;
+    registerQueryTool(server as any, db, { maxRows: 100, timeoutMs: 1000 });
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.query.handler({ sql: 'SELECT 1' })).rejects.toThrow('q-fail');
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool query failed');
+    expect(log).toContain('SELECT 1');
+    spy.mockRestore();
+  });
 });

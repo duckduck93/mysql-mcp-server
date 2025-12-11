@@ -23,4 +23,16 @@ describe('tools/show_indexes', () => {
     expect(db.showIndexes).toHaveBeenCalledWith('t');
     expect(res.structuredContent).toEqual(resObj);
   });
+
+  it('logs to stderr and rethrows on error', async () => {
+    const server = new FakeServer();
+    const db = { showIndexes: vi.fn().mockRejectedValue(new Error('si-fail')) } as any;
+    registerShowIndexesTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.show_indexes.handler({ table: 't' })).rejects.toThrow('si-fail');
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool show_indexes failed');
+    expect(log).toContain('"table":"t"');
+    spy.mockRestore();
+  });
 });

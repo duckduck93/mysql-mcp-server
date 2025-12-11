@@ -21,4 +21,15 @@ describe('tools/version', () => {
     expect(db.version).toHaveBeenCalled();
     expect(res.structuredContent).toEqual({ version: '8.0.x' });
   });
+
+  it('logs to stderr and rethrows on error', async () => {
+    const server = new FakeServer();
+    const db = { version: vi.fn().mockRejectedValue(new Error('v-fail')) } as any;
+    registerVersionTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.version.handler({})).rejects.toThrow('v-fail');
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool version failed');
+    spy.mockRestore();
+  });
 });

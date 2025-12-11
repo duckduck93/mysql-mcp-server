@@ -24,7 +24,15 @@ export function registerShowIndexesTool(server: McpServer, db: Database) {
     inputSchema: showIndexesInput,
     outputSchema: showIndexesOutput,
   }, async ({ table }: { table: string }) => {
-    const res = await db.showIndexes(table);
-    return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;
+    try {
+      const res = await db.showIndexes(table);
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;
+    } catch (err: any) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      const ts = new Date().toISOString();
+      const input = { table };
+      process.stderr.write(`[${ts}] tool show_indexes failed: ${e.message}\ninput: ${JSON.stringify(input)}\nstack: ${e.stack ?? 'no-stack'}\n`);
+      throw err;
+    }
   });
 }

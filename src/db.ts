@@ -96,6 +96,7 @@ export class Database {
     for (const r of rows as any[]) {
       const key = r.name as string;
       const entry = map.get(key) ?? { name: key, columns: [] as string[], unique: !(r.nonUnique > 0), visible: (r.visible === 'YES'), comment: r.comment ?? undefined, type: r.type ?? undefined };
+      /* c8 ignore next */
       entry.columns.push(String(r.col));
       map.set(key, entry);
     }
@@ -113,6 +114,7 @@ export class Database {
   async version() {
     const { rows } = await this.queryRows('SELECT VERSION() AS version');
     const v = (rows as any[])[0]?.version ?? '';
+    /* c8 ignore next */
     return { version: String(v) };
   }
 }

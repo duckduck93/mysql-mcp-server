@@ -31,4 +31,30 @@ describe('tools/show_tables', () => {
     await server.tools.show_tables.handler({ includeViews: true });
     expect(db.showTables).toHaveBeenCalledWith(true);
   });
+
+  it('logs to stderr and rethrows on error', async () => {
+    const server = new FakeServer();
+    const db = { showTables: vi.fn().mockRejectedValue(new Error('st-fail')) } as any;
+    registerShowTablesTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.show_tables.handler({ includeViews: true })).rejects.toThrow('st-fail');
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool show_tables failed');
+    expect(log).toContain('includeViews');
+    spy.mockRestore();
+  });
+
+  it('logs mysql error details and uses sqlMessage when message is empty', async () => {
+    const server = new FakeServer();
+    const err: any = { message: '', code: 'ER_ACCESS_DENIED', errno: 1045, sqlState: '28000', sqlMessage: 'Access denied' };
+    const db = { showTables: vi.fn().mockRejectedValue(err) } as any;
+    registerShowTablesTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.show_tables.handler({})).rejects.toBe(err);
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('Access denied');
+    expect(log).toContain('ER_ACCESS_DENIED');
+    expect(log).toContain('details');
+    spy.mockRestore();
+  });
 });

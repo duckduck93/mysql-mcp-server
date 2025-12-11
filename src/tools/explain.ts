@@ -17,8 +17,16 @@ export function registerExplainTool(server: McpServer, db: Database) {
     inputSchema: explainInput,
     outputSchema: explainOutput,
   }, async ({ sql, params }: { sql: string; params?: any[] | undefined }) => {
-    const plan = await db.explain(sql, params ?? []);
-    const res = { plan };
-    return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;
+    try {
+      const plan = await db.explain(sql, params ?? []);
+      const res = { plan };
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;
+    } catch (err: any) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      const ts = new Date().toISOString();
+      const input = { sql, params: params ?? [] };
+      process.stderr.write(`[${ts}] tool explain failed: ${e.message}\ninput: ${JSON.stringify(input)}\nstack: ${e.stack ?? 'no-stack'}\n`);
+      throw err;
+    }
   });
 }

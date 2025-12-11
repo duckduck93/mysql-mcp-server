@@ -23,4 +23,16 @@ describe('tools/describe_table', () => {
     expect(db.describeTable).toHaveBeenCalledWith('t');
     expect(res.structuredContent).toEqual(resObj);
   });
+
+  it('logs to stderr and rethrows on error', async () => {
+    const server = new FakeServer();
+    const db = { describeTable: vi.fn().mockRejectedValue(new Error('dt-fail')) } as any;
+    registerDescribeTableTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.describe_table.handler({ table: 'users' })).rejects.toThrow('dt-fail');
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool describe_table failed');
+    expect(log).toContain('"table":"users"');
+    spy.mockRestore();
+  });
 });
