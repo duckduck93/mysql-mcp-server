@@ -17,13 +17,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.24.3",
-    "zod": "^4.1.13",
-    "mysql2": "^3.11.3"
+    "mysql2": "^3.11.3",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@types/node": "^24.10.2",
+    "@vitest/coverage-v8": "^4.0.15",
     "typescript": "^5.9.3",
-    "vitest": "^2.1.4",
-    "@vitest/coverage-v8": "^2.1.4"
+    "vitest": "^4.0.15"
   }
 }

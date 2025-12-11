@@ -45,12 +45,17 @@ export function loadConfig(env = process.env): AppConfig & {
   const sslMode = parsed.MYSQL_SSL;
   let ssl: undefined | { ca?: Buffer; cert?: Buffer; key?: Buffer; rejectUnauthorized?: boolean } = undefined;
   if (sslMode !== 'off') {
-    ssl = {
-      ca: fromBase64(parsed.MYSQL_SSL_CA_BASE64),
-      cert: fromBase64(parsed.MYSQL_SSL_CERT_BASE64),
-      key: fromBase64(parsed.MYSQL_SSL_KEY_BASE64),
+    const ca = fromBase64(parsed.MYSQL_SSL_CA_BASE64);
+    const cert = fromBase64(parsed.MYSQL_SSL_CERT_BASE64);
+    const key = fromBase64(parsed.MYSQL_SSL_KEY_BASE64);
+    // Construct without assigning undefined to satisfy exactOptionalPropertyTypes
+    const obj: { ca?: Buffer; cert?: Buffer; key?: Buffer; rejectUnauthorized?: boolean } = {
       rejectUnauthorized: sslMode === 'verify_ca',
     };
+    if (ca) obj.ca = ca;
+    if (cert) obj.cert = cert;
+    if (key) obj.key = key;
+    ssl = obj;
   }
 
   return { ...parsed, ssl } as any;

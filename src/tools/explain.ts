@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/sdk/dist/esm/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Database } from '../db.js';
 
 export const explainInput = z.object({
@@ -16,7 +16,7 @@ export function registerExplainTool(server: McpServer, db: Database) {
     description: 'Return the execution plan for a SELECT statement',
     inputSchema: explainInput,
     outputSchema: explainOutput,
-  }, async ({ sql, params }) => {
+  }, async ({ sql, params }: { sql: string; params?: any[] | undefined }) => {
     const plan = await db.explain(sql, params ?? []);
     const res = { plan };
     return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;

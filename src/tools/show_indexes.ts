@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/sdk/dist/esm/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Database } from '../db.js';
 
 export const showIndexesInput = z.object({
@@ -23,7 +23,7 @@ export function registerShowIndexesTool(server: McpServer, db: Database) {
     description: 'Show index definitions for a given table',
     inputSchema: showIndexesInput,
     outputSchema: showIndexesOutput,
-  }, async ({ table }) => {
+  }, async ({ table }: { table: string }) => {
     const res = await db.showIndexes(table);
     return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;
   });

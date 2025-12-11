@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/sdk/dist/esm/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Database } from '../db.js';
 
 export const describeTableInput = z.object({
@@ -25,7 +25,7 @@ export function registerDescribeTableTool(server: McpServer, db: Database) {
     description: 'Describe the schema and comments for a given table',
     inputSchema: describeTableInput,
     outputSchema: describeTableOutput,
-  }, async ({ table }) => {
+  }, async ({ table }: { table: string }) => {
     const res = await db.describeTable(table);
     return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;
   });

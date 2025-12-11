@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/sdk/dist/esm/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Database } from '../db.js';
 
 export const queryInput = z.object({
@@ -21,7 +21,7 @@ export function registerQueryTool(server: McpServer, db: Database, defaults: { m
     description: 'Execute a SELECT query and return rows with column metadata',
     inputSchema: queryInput,
     outputSchema: queryOutput,
-  }, async ({ sql, params, maxRows, timeoutMs }) => {
+  }, async ({ sql, params, maxRows, timeoutMs }: { sql: string; params?: any[] | undefined; maxRows?: number | undefined; timeoutMs?: number | undefined }) => {
     const res = await db.queryRows(sql, params ?? [], {
       maxRows: maxRows ?? defaults.maxRows,
       timeoutMs: timeoutMs ?? defaults.timeoutMs,

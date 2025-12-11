@@ -4,13 +4,14 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# Install deps first (better cache)
+COPY src ./src
+COPY tsconfig.json tsconfig.build.json ./
 COPY package.json package-lock.json* ./
+
+# Install deps first (better cache)
 RUN npm ci --no-audit --no-fund
 
 # Copy sources and build
-COPY tsconfig.json ./
-COPY src ./src
 RUN npm run build
 
 # === Runtime stage ===

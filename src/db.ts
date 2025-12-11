@@ -1,5 +1,6 @@
-import mysql, { Pool, FieldPacket, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
-import { AppConfig } from './config.js';
+import mysql from 'mysql2/promise';
+import type { Pool, FieldPacket, RowDataPacket, ResultSetHeader, PoolOptions } from 'mysql2/promise';
+import type { AppConfig } from './config.js';
 
 export type QueryOptions = { timeoutMs?: number; maxRows?: number };
 export type ExecOptions = { timeoutMs?: number };
@@ -7,20 +8,26 @@ export type ExecOptions = { timeoutMs?: number };
 export class Database {
   private pool: Pool;
   constructor(private cfg: AppConfig & { ssl?: any }) {
-    this.pool = mysql.createPool({
-      host: cfg.MYSQL_HOST,
-      port: cfg.MYSQL_PORT,
-      user: cfg.MYSQL_USER,
-      password: cfg.MYSQL_PASSWORD,
-      database: cfg.MYSQL_DATABASE,
-      ssl: cfg.ssl,
+    const conf = this.cfg;
+    const opts: PoolOptions = {
+      host: conf.MYSQL_HOST,
+      port: conf.MYSQL_PORT,
+      user: conf.MYSQL_USER,
+      password: conf.MYSQL_PASSWORD,
+      database: conf.MYSQL_DATABASE,
+      ssl: conf.ssl,
       waitForConnections: true,
-      connectionLimit: cfg.MYSQL_POOL_MAX,
+      connectionLimit: conf.MYSQL_POOL_MAX,
       queueLimit: 0,
-      connectTimeout: cfg.MYSQL_CONNECT_TIMEOUT_MS,
-      timezone: cfg.MYSQL_TIMEZONE,
-      charset: cfg.MYSQL_CHARSET,
-    });
+      connectTimeout: conf.MYSQL_CONNECT_TIMEOUT_MS,
+    };
+    if (conf.MYSQL_TIMEZONE !== undefined) {
+      (opts as any).timezone = conf.MYSQL_TIMEZONE;
+    }
+    if (conf.MYSQL_CHARSET !== undefined) {
+      (opts as any).charset = conf.MYSQL_CHARSET;
+    }
+    this.pool = mysql.createPool(opts);
   }
 
   async close(): Promise<void> {
@@ -37,8 +44,8 @@ export class Database {
 
   async queryRows(sql: string, params: any[] = [], opts: QueryOptions = {}) {
     const start = Date.now();
-    const promise = this.pool.execute<RowDataPacket[] & RowDataPacket[][]>(sql, params);
-    const [rows, fields] = await this.withTimeout(promise as any, opts.timeoutMs ?? undefined, 'query');
+    const promise = this.pool.execute<RowDataPacket[]>(sql, params);
+    const [rows, fields] = await this.withTimeout(promise, opts.timeoutMs ?? undefined, 'query');
 
     // fields may be undefined for some statements
     const columns = (fields ?? []).map((f: any) => ({ name: f.name as string, type: String(f.type ?? '') }));
@@ -54,7 +61,7 @@ export class Database {
   async execute(sql: string, params: any[] = [], opts: ExecOptions = {}) {
     const start = Date.now();
     const promise = this.pool.execute<ResultSetHeader>(sql, params);
-    const [result] = await this.withTimeout(promise as any, opts.timeoutMs ?? undefined, 'execute');
+    const [result] = await this.withTimeout(promise, opts.timeoutMs ?? undefined, 'execute');
     const { affectedRows, insertId, warningStatus } = result as ResultSetHeader;
     const elapsedMs = Date.now() - start;
     return { affectedRows, insertId, warningStatus, elapsedMs };
@@ -84,8 +91,8 @@ export class Database {
     const map = new Map<string, { name: string; columns: string[]; unique: boolean; visible?: boolean; comment?: string; type?: string }>();
     for (const r of rows as any[]) {
       const key = r.name as string;
-      const entry = map.get(key) ?? { name: key, columns: [], unique: !(r.nonUnique > 0), visible: (r.visible === 'YES'), comment: r.comment ?? undefined, type: r.type ?? undefined };
-      entry.columns.push(r.col);
+      const entry = map.get(key) ?? { name: key, columns: [] as string[], unique: !(r.nonUnique > 0), visible: (r.visible === 'YES'), comment: r.comment ?? undefined, type: r.type ?? undefined };
+      entry.columns.push(String(r.col));
       map.set(key, entry);
     }
     return { table, indexes: Array.from(map.values()) };
