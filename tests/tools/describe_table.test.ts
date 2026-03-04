@@ -35,4 +35,16 @@ describe('tools/describe_table', () => {
     expect(log).toContain('"table":"users"');
     spy.mockRestore();
   });
+
+  it('rethrows non-Error and logs with coerced message', async () => {
+    const server = new FakeServer();
+    const db = { describeTable: vi.fn().mockRejectedValue(['boom']) } as any;
+    registerDescribeTableTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.describe_table.handler({ table: 't' })).rejects.toEqual(['boom']);
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool describe_table failed');
+    expect(log).toContain('"table":"t"');
+    spy.mockRestore();
+  });
 });

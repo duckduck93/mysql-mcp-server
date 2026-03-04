@@ -35,4 +35,16 @@ describe('tools/show_indexes', () => {
     expect(log).toContain('"table":"t"');
     spy.mockRestore();
   });
+
+  it('rethrows non-Error and logs with coerced message', async () => {
+    const server = new FakeServer();
+    const db = { showIndexes: vi.fn().mockRejectedValue(Symbol('bad')) } as any;
+    registerShowIndexesTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.show_indexes.handler({ table: 'x' })).rejects.toEqual(Symbol.for ? expect.anything() : expect.anything());
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool show_indexes failed');
+    expect(log).toContain('"table":"x"');
+    spy.mockRestore();
+  });
 });

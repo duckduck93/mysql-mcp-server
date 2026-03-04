@@ -42,4 +42,16 @@ describe('tools/query', () => {
     expect(log).toContain('SELECT 1');
     spy.mockRestore();
   });
+
+  it('rethrows non-Error and logs with coerced message', async () => {
+    const server = new FakeServer();
+    const db = { queryRows: vi.fn().mockRejectedValue('string-error') } as any;
+    registerQueryTool(server as any, db, { maxRows: 10, timeoutMs: 20 });
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.query.handler({ sql: 'SELECT 2' })).rejects.toBe('string-error');
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool query failed');
+    expect(log).toContain('SELECT 2');
+    spy.mockRestore();
+  });
 });

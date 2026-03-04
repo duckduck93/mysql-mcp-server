@@ -81,7 +81,12 @@ export class Database {
       this.queryRows(tableSql, [table])
     ]);
     const tableComment = (tableRes.rows as any[])[0]?.comment as string | undefined;
-    return { table, columns: columnsRes.rows, tableComment };
+    // Ensure nullable is a real boolean (MySQL may return 0/1)
+    const columns = (columnsRes.rows as any[]).map((row: any) => ({
+      ...row,
+      nullable: !!row?.nullable,
+    }));
+    return { table, columns, tableComment };
   }
 
   async showIndexes(table: string) {

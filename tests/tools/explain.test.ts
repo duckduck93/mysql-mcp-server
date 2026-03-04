@@ -35,4 +35,26 @@ describe('tools/explain', () => {
     expect(log).toContain('SELECT * FROM t');
     spy.mockRestore();
   });
+
+  it('rethrows non-Error and logs with coerced message', async () => {
+    const server = new FakeServer();
+    const db = { explain: vi.fn().mockRejectedValue({ toString: () => 'weird' }) } as any;
+    registerExplainTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.explain.handler({ sql: 'SELECT * FROM t' })).rejects.toEqual({ toString: expect.any(Function) });
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool explain failed');
+    expect(log).toContain('SELECT * FROM t');
+    spy.mockRestore();
+  });
+
+  it('handles missing params by defaulting to empty array', async () => {
+    const server = new FakeServer();
+    const plan = [{ id: 3 }];
+    const db = { explain: vi.fn().mockResolvedValue(plan) } as any;
+    registerExplainTool(server as any, db);
+    const res = await server.tools.explain.handler({ sql: 'SELECT * FROM x' });
+    expect(db.explain).toHaveBeenCalledWith('SELECT * FROM x', []);
+    expect(res.structuredContent).toEqual({ plan });
+  });
 });

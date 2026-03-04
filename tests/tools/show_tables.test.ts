@@ -57,4 +57,32 @@ describe('tools/show_tables', () => {
     expect(log).toContain('details');
     spy.mockRestore();
   });
+
+  it('rethrows non-Error and logs with coerced message', async () => {
+    const server = new FakeServer();
+    const db = { showTables: vi.fn().mockRejectedValue('bad') } as any;
+    registerShowTablesTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.show_tables.handler({ includeViews: false })).rejects.toBe('bad');
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool show_tables failed');
+    spy.mockRestore();
+  });
+
+  it('covers details collection for each mysql error field individually', async () => {
+    const keys = ['code', 'errno', 'sql', 'sqlState', 'sqlMessage'] as const;
+    for (const k of keys) {
+      const server = new FakeServer();
+      const err: any = { message: '' };
+      err[k] = `X_${k}`;
+      const db = { showTables: vi.fn().mockRejectedValue(err) } as any;
+      registerShowTablesTool(server as any, db);
+      const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+      await expect(server.tools.show_tables.handler({ includeViews: false })).rejects.toBe(err);
+      const log = spy.mock.calls.map((c) => String(c[0])).join('');
+      expect(log).toContain('details');
+      expect(log).toContain(`X_${k}`);
+      spy.mockRestore();
+    }
+  });
 });

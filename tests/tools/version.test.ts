@@ -32,4 +32,15 @@ describe('tools/version', () => {
     expect(log).toContain('tool version failed');
     spy.mockRestore();
   });
+
+  it('rethrows non-Error and logs with coerced message', async () => {
+    const server = new FakeServer();
+    const db = { version: vi.fn().mockRejectedValue(null) } as any;
+    registerVersionTool(server as any, db);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.version.handler({})).rejects.toBeNull();
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool version failed');
+    spy.mockRestore();
+  });
 });

@@ -43,4 +43,16 @@ describe('tools/execute', () => {
     expect(log).toContain('UPDATE t SET a=1');
     spy.mockRestore();
   });
+
+  it('rethrows non-Error and logs with coerced message', async () => {
+    const server = new FakeServer();
+    const db = { execute: vi.fn().mockRejectedValue(12345) } as any;
+    registerExecuteTool(server as any, db, { timeoutMs: 5 });
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true as any);
+    await expect(server.tools.execute.handler({ sql: 'DELETE FROM t' })).rejects.toBe(12345);
+    const log = spy.mock.calls.map((c) => String(c[0])).join('');
+    expect(log).toContain('tool execute failed');
+    expect(log).toContain('DELETE FROM t');
+    spy.mockRestore();
+  });
 });

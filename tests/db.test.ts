@@ -118,6 +118,17 @@ describe('db.ts', () => {
     expect(res.tableComment).toBe('t-comment');
   });
 
+  it('describeTable converts numeric nullable to boolean', async () => {
+    let call = 0;
+    setExecuteImpl(vi.fn().mockImplementation(() => {
+      call++;
+      if (call === 1) return Promise.resolve([[{ name: 'n', type: 'varchar', nullable: 1 }], []]);
+      return Promise.resolve([[{ comment: '' }], []]);
+    }));
+    const res = await db.describeTable('t2');
+    expect(res.columns[0].nullable).toBe(true);
+  });
+
   it('showIndexes groups by index name and maps fields', async () => {
     const stats = [
       { name: 'PRIMARY', seq: 1, col: 'id', nonUnique: 0, comment: null, type: 'BTREE', visible: 'YES' },
@@ -138,10 +149,26 @@ describe('db.ts', () => {
     expect(idxA.type).toBe('BTREE');
   });
 
+  it('showIndexes handles non-nested rows path', async () => {
+    const stats = [
+      { name: 'ix', seq: 1, col: 'c1', nonUnique: 1, comment: '', type: 'BTREE', visible: 'YES' },
+    ];
+    setExecuteImpl(vi.fn().mockResolvedValue([stats, []]));
+    const res = await db.showIndexes('t3');
+    expect(res.indexes[0].columns).toEqual(['c1']);
+  });
+
   it('explain returns plan rows', async () => {
     const plan = [{ id: 1 }];
     setExecuteImpl(vi.fn().mockResolvedValue([[plan], []]));
     const res = await db.explain('SELECT 1');
+    expect(res).toEqual(plan);
+  });
+
+  it('explain handles non-nested rows path', async () => {
+    const plan = [{ id: 2 }];
+    setExecuteImpl(vi.fn().mockResolvedValue([plan, []]));
+    const res = await db.explain('SELECT 2');
     expect(res).toEqual(plan);
   });
 
