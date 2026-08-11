@@ -21,15 +21,16 @@ async function tryInitDb(): Promise<{ db: Database; cleanup: () => Promise<void>
   process.env.MYSQL_HOST = process.env.MYSQL_HOST || 'localhost';
   process.env.MYSQL_PORT = process.env.MYSQL_PORT || '3306';
   process.env.MYSQL_USER = process.env.MYSQL_USER || 'test_user';
-  process.env.MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || 'sample_pass_123';
   process.env.MYSQL_DATABASE = process.env.MYSQL_DATABASE || 'test_db';
+  process.env.MYSQL_PROFILE = process.env.MYSQL_PROFILE || 'e2e-local';
   process.env.MYSQL_SSL = process.env.MYSQL_SSL || 'off';
   process.env.MYSQL_CONNECT_TIMEOUT_MS = process.env.MYSQL_CONNECT_TIMEOUT_MS || '5000';
   process.env.MYSQL_QUERY_TIMEOUT_MS = process.env.MYSQL_QUERY_TIMEOUT_MS || '60000';
   process.env.MAX_ROWS = process.env.MAX_ROWS || '10000';
 
   const cfg = loadConfig();
-  const db = createDatabase(cfg);
+  // 로컬 테스트 DB 라 Keychain 을 태우지 않고 고정 비밀번호 대역을 넣는다.
+  const db = createDatabase(cfg, { resolve: async () => process.env.MYSQL_E2E_PASSWORD || 'sample_pass_123' });
   try {
     // simple connectivity check
     await db.version();

@@ -6,8 +6,12 @@ export const ConfigSchema = z.object({
   MYSQL_HOST: z.string().min(1),
   MYSQL_PORT: z.coerce.number().int().positive().default(3306),
   MYSQL_USER: z.string().min(1),
-  MYSQL_PASSWORD: z.string().default(''),
   MYSQL_DATABASE: z.string().min(1),
+
+  // 비밀번호는 설정에 싣지 않는다. 선언한 출처에서 접속 시점에 꺼낸다.
+  // keychain 이면 서비스명 `mysql-mcp/<MYSQL_PROFILE>`, env 면 MYSQL_PASSWORD.
+  MYSQL_PROFILE: z.string().min(1),
+  MYSQL_SECRET_SOURCE: z.enum(['keychain', 'env']).default('keychain'),
 
   MYSQL_SSL: z.enum(['off', 'required', 'verify_ca']).default('off'),
   MYSQL_SSL_CA_BASE64: z.string().optional(),

@@ -1,19 +1,39 @@
 import mysql from 'mysql2/promise';
 import type { Pool, FieldPacket, RowDataPacket, ResultSetHeader, PoolOptions } from 'mysql2/promise';
 import type { AppConfig } from './config.js';
+import { KeychainSecret, type SecretResolver } from './secret-resolver.js';
 
 export type QueryOptions = { timeoutMs?: number; maxRows?: number };
 export type ExecOptions = { timeoutMs?: number };
 
 export class Database {
-  private pool: Pool;
-  constructor(private cfg: AppConfig & { ssl?: any }) {
+  /** 첫 조회 때 만든다. 기동 시점에 비밀번호를 꺼내 두지 않기 위해서다. */
+  private poolPromise: Promise<Pool> | undefined;
+
+  constructor(
+    private cfg: AppConfig & { ssl?: any },
+    private secrets: SecretResolver,
+  ) {}
+
+  private pool(): Promise<Pool> {
+    // 실패한 약속을 남겨두면 Keychain 에 항목을 등록해도 재시작 전까지 계속 실패한다.
+    this.poolPromise ??= this.createPool().catch(err => {
+      this.poolPromise = undefined;
+      throw err;
+    });
+    return this.poolPromise;
+  }
+
+  private async createPool(): Promise<Pool> {
     const conf = this.cfg;
+    const password = await this.secrets.resolve(
+      KeychainSecret.forProfile({ profile: conf.MYSQL_PROFILE, account: conf.MYSQL_USER }),
+    );
     const opts: PoolOptions = {
       host: conf.MYSQL_HOST,
       port: conf.MYSQL_PORT,
       user: conf.MYSQL_USER,
-      password: conf.MYSQL_PASSWORD,
+      password,
       database: conf.MYSQL_DATABASE,
       ssl: conf.ssl,
       waitForConnections: true,
@@ -27,11 +47,14 @@ export class Database {
     if (conf.MYSQL_CHARSET !== undefined) {
       (opts as any).charset = conf.MYSQL_CHARSET;
     }
-    this.pool = mysql.createPool(opts);
+    return mysql.createPool(opts);
   }
 
   async close(): Promise<void> {
-    await this.pool.end();
+    const pending = this.poolPromise;
+    this.poolPromise = undefined;
+    if (!pending) return;
+    await (await pending).end();
   }
 
   private withTimeout<T>(p: Promise<T>, timeoutMs?: number, label = 'operation'): Promise<T> {
@@ -43,8 +66,9 @@ export class Database {
   }
 
   async queryRows(sql: string, params: any[] = [], opts: QueryOptions = {}) {
+    const pool = await this.pool();
     const start = Date.now();
-    const promise = this.pool.execute<RowDataPacket[]>(sql, params);
+    const promise = pool.execute<RowDataPacket[]>(sql, params);
     const [rows, fields] = await this.withTimeout(promise, opts.timeoutMs ?? undefined, 'query');
 
     // fields may be undefined for some statements
@@ -59,8 +83,9 @@ export class Database {
   }
 
   async execute(sql: string, params: any[] = [], opts: ExecOptions = {}) {
+    const pool = await this.pool();
     const start = Date.now();
-    const promise = this.pool.execute<ResultSetHeader>(sql, params);
+    const promise = pool.execute<ResultSetHeader>(sql, params);
     const [result] = await this.withTimeout(promise, opts.timeoutMs ?? undefined, 'execute');
     const { affectedRows, insertId, warningStatus } = result as ResultSetHeader;
     const elapsedMs = Date.now() - start;
@@ -124,6 +149,6 @@ export class Database {
   }
 }
 
-export function createDatabase(cfg: AppConfig & { ssl?: any }) {
-  return new Database(cfg);
+export function createDatabase(cfg: AppConfig & { ssl?: any }, secrets: SecretResolver) {
+  return new Database(cfg, secrets);
 }

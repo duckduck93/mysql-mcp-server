@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as mysqlModule from 'mysql2/promise';
 import { createDatabase, Database } from '../src/db.js';
 import type { AppConfig } from '../src/config.js';
+import type { SecretResolver } from '../src/secret-resolver.js';
 
 vi.mock('mysql2/promise', () => {
   let executeImpl: any;
@@ -15,10 +16,14 @@ vi.mock('mysql2/promise', () => {
 });
 
 const baseCfg: AppConfig & { ssl?: any } = {
-  MYSQL_HOST: 'h', MYSQL_PORT: 3306, MYSQL_USER: 'u', MYSQL_PASSWORD: '', MYSQL_DATABASE: 'd',
+  MYSQL_HOST: 'h', MYSQL_PORT: 3306, MYSQL_USER: 'u', MYSQL_DATABASE: 'd', MYSQL_PROFILE: 'testprofile',
   MYSQL_SSL: 'off', MYSQL_CONNECT_TIMEOUT_MS: 10000, MYSQL_QUERY_TIMEOUT_MS: 60000, MYSQL_POOL_MIN: 0, MYSQL_POOL_MAX: 10,
   MAX_ROWS: 10000, LOG_LEVEL: 'silent',
 };
+
+function fakeResolver(password = 'pw-from-keychain'): SecretResolver & { resolve: ReturnType<typeof vi.fn> } {
+  return { resolve: vi.fn().mockResolvedValue(password) } as any;
+}
 
 function setExecuteImpl(fn: any) {
   // @ts-ignore
@@ -29,7 +34,7 @@ describe('db.ts', () => {
   let db: Database;
   beforeEach(() => {
     vi.useFakeTimers();
-    db = createDatabase(baseCfg);
+    db = createDatabase(baseCfg, fakeResolver());
   });
   afterEach(async () => {
     vi.useRealTimers();
@@ -178,12 +183,83 @@ describe('db.ts', () => {
     expect(res).toEqual({ version: '8.0.x' });
   });
 
-  it('constructor passes timezone and charset to mysql2 createPool', async () => {
+  it('passes timezone and charset to mysql2 createPool', async () => {
     const cfg = { ...baseCfg, MYSQL_TIMEZONE: '+00:00', MYSQL_CHARSET: 'utf8mb4' } as any;
     const { createPool } = mysqlModule.default as any;
     (createPool as any).mockClear();
-    const localDb = createDatabase(cfg);
+    const localDb = createDatabase(cfg, fakeResolver());
+    setExecuteImpl(vi.fn().mockResolvedValue([[{ version: '8' }], []]));
+    await localDb.version();
     expect(createPool).toHaveBeenCalledWith(expect.objectContaining({ timezone: '+00:00', charset: 'utf8mb4' }));
     await localDb.close();
+  });
+});
+
+describe('db.ts — 비밀번호는 접속 시점에 Keychain 에서 꺼낸다', () => {
+  const { createPool } = mysqlModule.default as any;
+
+  beforeEach(() => {
+    // setExecuteImpl 이 mock 풀을 꺼내느라 createPool 을 한 번 부르므로 그 뒤에 센다
+    setExecuteImpl(vi.fn().mockResolvedValue([[{ version: '8' }], []]));
+    (createPool as any).mockClear();
+  });
+
+  it('생성만으로는 풀도 만들지 않고 Keychain 도 보지 않는다', () => {
+    const secrets = fakeResolver();
+    createDatabase(baseCfg, secrets);
+    expect(secrets.resolve).not.toHaveBeenCalled();
+    expect(createPool).not.toHaveBeenCalled();
+  });
+
+  it('첫 조회에서 프로파일명으로 Keychain 을 조회해 풀에 비밀번호를 넘긴다', async () => {
+    const secrets = fakeResolver('pw-from-keychain');
+    const db = createDatabase(baseCfg, secrets);
+    await db.version();
+
+    const secret = secrets.resolve.mock.calls[0][0];
+    expect(secret.service).toBe('mysql-mcp/testprofile');
+    expect(secret.account).toBe('u');
+    expect(createPool).toHaveBeenCalledWith(expect.objectContaining({ password: 'pw-from-keychain' }));
+    await db.close();
+  });
+
+  it('두 번째 조회는 만들어 둔 풀을 재사용한다', async () => {
+    const secrets = fakeResolver();
+    const db = createDatabase(baseCfg, secrets);
+    await db.version();
+    await db.version();
+    expect(secrets.resolve).toHaveBeenCalledTimes(1);
+    expect(createPool).toHaveBeenCalledTimes(1);
+    await db.close();
+  });
+
+  it('동시에 들어온 조회도 풀을 하나만 만든다', async () => {
+    const secrets = fakeResolver();
+    const db = createDatabase(baseCfg, secrets);
+    await Promise.all([db.version(), db.version(), db.version()]);
+    expect(secrets.resolve).toHaveBeenCalledTimes(1);
+    expect(createPool).toHaveBeenCalledTimes(1);
+    await db.close();
+  });
+
+  it('Keychain 조회 실패는 그대로 올라오고, 등록 뒤 재시도는 재시작 없이 통과한다', async () => {
+    const secrets = { resolve: vi.fn() } as any;
+    secrets.resolve.mockRejectedValueOnce(new Error('항목 없음')).mockResolvedValueOnce('pw');
+    const db = createDatabase(baseCfg, secrets);
+
+    await expect(db.version()).rejects.toThrow('항목 없음');
+    expect(createPool).not.toHaveBeenCalled();
+
+    await expect(db.version()).resolves.toEqual({ version: '8' });
+    expect(createPool).toHaveBeenCalledTimes(1);
+    await db.close();
+  });
+
+  it('한 번도 쓰지 않은 채 닫으면 아무 것도 하지 않는다', async () => {
+    const secrets = fakeResolver();
+    const db = createDatabase(baseCfg, secrets);
+    await db.close();
+    expect(secrets.resolve).not.toHaveBeenCalled();
+    expect(createPool).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@ function baseEnv() {
     MYSQL_HOST: 'localhost',
     MYSQL_USER: 'user',
     MYSQL_DATABASE: 'db',
+    MYSQL_PROFILE: 'testprofile',
   } as any;
 }
 
@@ -18,6 +19,22 @@ describe('config.ts', () => {
   it('fails when required fields missing', () => {
     const r = ConfigSchema.safeParse({});
     expect(r.success).toBe(false);
+  });
+
+  it('MYSQL_PROFILE 이 없으면 기동하지 않는다', () => {
+    const { MYSQL_PROFILE, ...withoutProfile } = baseEnv();
+    expect(ConfigSchema.safeParse(withoutProfile).success).toBe(false);
+  });
+
+  it('MYSQL_PASSWORD 는 더 이상 설정으로 실리지 않는다', () => {
+    const cfg = loadConfig({ ...baseEnv(), MYSQL_PASSWORD: 'from-env' } as any);
+    expect((cfg as any).MYSQL_PASSWORD).toBeUndefined();
+  });
+
+  it('비밀번호 출처는 기본이 keychain 이고 env 로 바꿀 수 있다', () => {
+    expect(loadConfig(baseEnv()).MYSQL_SECRET_SOURCE).toBe('keychain');
+    expect(loadConfig({ ...baseEnv(), MYSQL_SECRET_SOURCE: 'env' } as any).MYSQL_SECRET_SOURCE).toBe('env');
+    expect(ConfigSchema.safeParse({ ...baseEnv(), MYSQL_SECRET_SOURCE: 'file' }).success).toBe(false);
   });
 
   it('applies defaults and coercions', () => {

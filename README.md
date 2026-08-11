@@ -20,8 +20,17 @@ Required:
 - MYSQL_HOST: MySQL host
 - MYSQL_PORT: MySQL port (default: 3306)
 - MYSQL_USER: Username
-- MYSQL_PASSWORD: Password
 - MYSQL_DATABASE: Database name (single DB fixed)
+- MYSQL_PROFILE: Profile name. Used as the OS keychain service name `mysql-mcp/<profile>`
+
+Password (not part of the config — resolved at connection time from the declared source):
+- MYSQL_SECRET_SOURCE: keychain | env (default: keychain)
+  - `keychain` (macOS only): read from the login keychain at connection time.
+    Register once with `security add-generic-password -U -s "mysql-mcp/<profile>" -a "<user>" -w`
+    (omit the value after `-w` so it is prompted for and never lands in shell history).
+  - `env`: read from MYSQL_PASSWORD. For platforms with no secure store implementation yet
+    (Windows, Linux). There is no fallback between sources — the declared one is the only one used.
+- MYSQL_PASSWORD: Password. Only read when MYSQL_SECRET_SOURCE=env
 
 Optional:
 - MYSQL_SSL: off | required | verify_ca (default: off)
@@ -49,8 +58,10 @@ npm run build
 MYSQL_HOST=127.0.0.1 \
 MYSQL_PORT=3306 \
 MYSQL_USER=root \
-MYSQL_PASSWORD=secret \
 MYSQL_DATABASE=mydb \
+MYSQL_PROFILE=local \
+MYSQL_SECRET_SOURCE=env \
+MYSQL_PASSWORD=secret \
 node dist/index.js
 ```
 
@@ -67,8 +78,10 @@ docker run --rm -it \
   -e MYSQL_HOST=host.docker.internal \
   -e MYSQL_PORT=3306 \
   -e MYSQL_USER=root \
-  -e MYSQL_PASSWORD=secret \
   -e MYSQL_DATABASE=mydb \
+  -e MYSQL_PROFILE=local \
+  -e MYSQL_SECRET_SOURCE=env \
+  -e MYSQL_PASSWORD=secret \
   mysql-mcp-server
 ```
 

@@ -5,7 +5,8 @@ const registerSpies: Record<string, any> = {};
 
 vi.mock('../src/config.js', () => ({
   loadConfig: vi.fn(() => ({
-    MYSQL_HOST: 'h', MYSQL_PORT: 3306, MYSQL_USER: 'u', MYSQL_PASSWORD: '', MYSQL_DATABASE: 'd',
+    MYSQL_HOST: 'h', MYSQL_PORT: 3306, MYSQL_USER: 'u', MYSQL_DATABASE: 'd', MYSQL_PROFILE: 'testprofile',
+    MYSQL_SECRET_SOURCE: 'env',
     MYSQL_SSL: 'off', MYSQL_CONNECT_TIMEOUT_MS: 10000, MYSQL_QUERY_TIMEOUT_MS: 60000, MYSQL_POOL_MIN: 0, MYSQL_POOL_MAX: 10,
     MAX_ROWS: 10000, LOG_LEVEL: 'silent',
   })),
@@ -73,6 +74,13 @@ describe('index.ts bootstrap', () => {
     expect(registerSpies.registerShowIndexesTool).toHaveBeenCalledTimes(1);
     expect(registerSpies.registerExplainTool).toHaveBeenCalledTimes(1);
     expect(registerSpies.registerVersionTool).toHaveBeenCalledTimes(1);
+
+    // 비밀번호를 기동 시 환경변수로 받지 않고, 조회기를 받아 접속 시점에 꺼낸다
+    const { createDatabase } = await import('../src/db.js');
+    expect(createDatabase).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ resolve: expect.any(Function) }),
+    );
 
     expect(connectSpy).toHaveBeenCalledTimes(1);
     // Two shutdown handlers should be registered

@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { loadConfig } from './config.js';
 import { createDatabase } from './db.js';
+import { createSecretResolver } from './secret-resolver.js';
 import { registerQueryTool } from './tools/query.js';
 import { registerExecuteTool } from './tools/execute.js';
 import { registerShowTablesTool } from './tools/show_tables.js';
@@ -15,7 +16,8 @@ async function main() {
   const cfg = loadConfig();
 
   const server = new McpServer({ name: 'MySQL MCP Server', version: '1.0.0' });
-  const db = createDatabase(cfg);
+  const secrets = createSecretResolver({ source: cfg.MYSQL_SECRET_SOURCE, env: process.env });
+  const db = createDatabase(cfg, secrets);
 
   // Register tools
   registerQueryTool(server, db, { maxRows: cfg.MAX_ROWS, timeoutMs: cfg.MYSQL_QUERY_TIMEOUT_MS });

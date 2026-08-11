@@ -13,7 +13,7 @@ describe('config.ts docker detection via fs fallbacks', () => {
       },
     }));
     const { loadConfig } = await import('../src/config.js');
-    const cfg = loadConfig({ MYSQL_HOST: 'localhost', MYSQL_USER: 'u', MYSQL_DATABASE: 'd' } as any);
+    const cfg = loadConfig({ MYSQL_HOST: 'localhost', MYSQL_USER: 'u', MYSQL_DATABASE: 'd', MYSQL_PROFILE: 'testprofile' } as any);
     expect(cfg.MYSQL_HOST).toBe('host.docker.internal');
   });
 
@@ -25,7 +25,7 @@ describe('config.ts docker detection via fs fallbacks', () => {
       },
     }));
     const { loadConfig } = await import('../src/config.js');
-    const cfg = loadConfig({ MYSQL_HOST: '127.0.0.1', MYSQL_USER: 'u', MYSQL_DATABASE: 'd' } as any);
+    const cfg = loadConfig({ MYSQL_HOST: '127.0.0.1', MYSQL_USER: 'u', MYSQL_DATABASE: 'd', MYSQL_PROFILE: 'testprofile' } as any);
     expect(cfg.MYSQL_HOST).toBe('host.docker.internal');
   });
 
@@ -37,7 +37,7 @@ describe('config.ts docker detection via fs fallbacks', () => {
       },
     }));
     const { loadConfig } = await import('../src/config.js');
-    const cfg = loadConfig({ MYSQL_HOST: 'localhost', MYSQL_USER: 'u', MYSQL_DATABASE: 'd' } as any);
+    const cfg = loadConfig({ MYSQL_HOST: 'localhost', MYSQL_USER: 'u', MYSQL_DATABASE: 'd', MYSQL_PROFILE: 'testprofile' } as any);
     expect(cfg.MYSQL_HOST).toBe('host.docker.internal');
   });
 });
