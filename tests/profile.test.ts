@@ -100,6 +100,26 @@ describe('Profile — 열림 여부를 스스로 판정한다', () => {
   });
 });
 
+describe('Profile — 표시에 필요한 정보를 노출한다', () => {
+  it('enabled 방식은 게이트 대상이 아니다', () => {
+    const p = profile({ enabled: true });
+    expect(p.isGated).toBe(false);
+    expect(p.expiresAt).toBeUndefined();
+  });
+
+  it('enabledUntil 방식은 게이트 대상이고 만료 시각을 준다', () => {
+    const p = profile({ enabled: undefined, enabledUntil: '2026-08-12T11:00:00Z' });
+    expect(p.isGated).toBe(true);
+    expect(p.expiresAt?.toISOString()).toBe('2026-08-12T11:00:00.000Z');
+  });
+
+  it('닫혀 있는 게이트 프로파일은 만료 시각이 없다', () => {
+    const p = profile({ enabled: undefined, enabledUntil: null });
+    expect(p.isGated).toBe(true);
+    expect(p.expiresAt).toBeUndefined();
+  });
+});
+
 describe('Profile — 닫혀 있으면 사용자에게 물으라고 실패한다', () => {
   it('닫힌 프로파일은 사용자가 켜야 한다고 말한다', () => {
     const p = profile({ enabled: false });

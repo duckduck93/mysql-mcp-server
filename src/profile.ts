@@ -125,6 +125,16 @@ export class Profile {
     return KeychainSecret.forProfile({ profile: this.name, account: this.user });
   }
 
+  /** 시각으로 닫히는 프로파일인가. 운영처럼 사용자가 열었다 닫는 대상을 가린다. */
+  get isGated(): boolean {
+    return this.gate.kind === 'until';
+  }
+
+  /** 열려 있는 만료 시각. 시각으로 닫히지 않거나 이미 닫혀 있으면 undefined. */
+  get expiresAt(): Date | undefined {
+    return this.gate.kind === 'until' && this.gate.until !== null ? this.gate.until : undefined;
+  }
+
   isOpenAt(now: Date): boolean {
     if (this.gate.kind === 'flag') return this.gate.open;
     return this.gate.until !== null && this.gate.until.getTime() > now.getTime();
