@@ -18,7 +18,7 @@ const profileOf = (name: string, overrides: Record<string, unknown> = {}) =>
     name,
     raw: {
       host: 'h', port: 3306, database: 'd', user: 'u',
-      enabled: true, readonly: false, maxRows: 100, description: 'x',
+      enabled: true, readonly: false, maxRows: 100, production: false, description: 'x',
       ...overrides,
     },
   });

@@ -8,6 +8,7 @@ export const profilesOutput = z.object({
     description: z.string(),
     open: z.boolean(),
     readonly: z.boolean(),
+    production: z.boolean(),
     maxRows: z.number().int().positive(),
     expiresAt: z.string().optional(),
   })),

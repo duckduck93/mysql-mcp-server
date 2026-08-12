@@ -6,7 +6,7 @@ const NOW = new Date('2026-08-12T10:00:00Z');
 function raw(overrides: Record<string, unknown> = {}) {
   return {
     host: 'h', port: 3306, database: 'd', user: 'u',
-    enabled: true, readonly: false, maxRows: 100,
+    enabled: true, readonly: false, maxRows: 100, production: false,
     description: '언제 이걸 쓰는지',
     ...overrides,
   };
@@ -97,6 +97,32 @@ describe('Profile — 열림 여부를 스스로 판정한다', () => {
   it('enabledUntil 이 시각으로 못 읽히면 실패한다', () => {
     expect(() => Profile.from({ name: 'dev', raw: raw({ enabled: undefined, enabledUntil: '어제' }) }))
       .toThrow(/enabledUntil/);
+  });
+});
+
+describe('Profile — 운영 여부는 별도 플래그로 선언한다', () => {
+  it('production 플래그를 그대로 노출한다', () => {
+    expect(profile({ production: false }).isProduction).toBe(false);
+    expect(profile({
+      production: true, enabled: undefined, enabledUntil: null,
+    }).isProduction).toBe(true);
+  });
+
+  it('production 을 빠뜨리면 실패한다 — 안전 플래그에 조용한 기본값을 두지 않는다', () => {
+    const { production, ...withoutFlag } = raw();
+    expect(() => Profile.from({ name: 'dev', raw: withoutFlag })).toThrow(/production/);
+  });
+
+  it('운영인데 enabled 로 상시 열어두면 실패한다', () => {
+    expect(() => Profile.from({ name: 'prod', raw: raw({ production: true, enabled: true }) }))
+      .toThrow(/enabledUntil/);
+  });
+
+  it('운영은 enabledUntil 로만 연다', () => {
+    expect(() => Profile.from({
+      name: 'prod',
+      raw: raw({ production: true, enabled: undefined, enabledUntil: '2026-08-12T11:00:00Z' }),
+    })).not.toThrow();
   });
 });
 

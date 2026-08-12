@@ -7,7 +7,7 @@ const cfg = { MYSQL_QUERY_TIMEOUT_MS: 60000 } as unknown as AppConfig & { ssl?: 
 
 const rawProfile = (overrides: Record<string, unknown> = {}) => ({
   host: 'h', port: 3306, database: 'd', user: 'u',
-  enabled: true, readonly: false, maxRows: 100,
+  enabled: true, readonly: false, maxRows: 100, production: false,
   description: '언제 이걸 쓰는지',
   ...overrides,
 });
@@ -293,13 +293,13 @@ describe('db.ts — 프로파일 목록', () => {
     const { db } = makeDb({
       profiles: {
         dev: rawProfile(),
-        prod: rawProfile({ enabled: undefined, enabledUntil: '2026-08-12T11:00:00Z', readonly: true, maxRows: 500 }),
+        prod: rawProfile({ enabled: undefined, enabledUntil: '2026-08-12T11:00:00Z', readonly: true, maxRows: 500, production: true }),
       },
     });
     expect(db.listProfiles(NOW)).toEqual([
-      { name: 'dev', description: '언제 이걸 쓰는지', open: true, readonly: false, maxRows: 100 },
+      { name: 'dev', description: '언제 이걸 쓰는지', open: true, readonly: false, production: false, maxRows: 100 },
       {
-        name: 'prod', description: '언제 이걸 쓰는지', open: true, readonly: true, maxRows: 500,
+        name: 'prod', description: '언제 이걸 쓰는지', open: true, readonly: true, production: true, maxRows: 500,
         expiresAt: '2026-08-12T11:00:00.000Z',
       },
     ]);
@@ -308,7 +308,7 @@ describe('db.ts — 프로파일 목록', () => {
   it('닫힌 프로파일도 목록에 남아 무엇이 있는지 보인다', () => {
     const { db } = makeDb({ profiles: { dev: rawProfile({ enabled: false }) } });
     expect(db.listProfiles(NOW)).toEqual([
-      { name: 'dev', description: '언제 이걸 쓰는지', open: false, readonly: false, maxRows: 100 },
+      { name: 'dev', description: '언제 이걸 쓰는지', open: false, readonly: false, production: false, maxRows: 100 },
     ]);
   });
 

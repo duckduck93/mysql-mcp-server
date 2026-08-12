@@ -3,12 +3,12 @@ import { ProfileRegistry, UnknownProfileError } from '../src/profile-registry.js
 
 const DEV = {
   host: 'h1', port: 3306, database: 'd', user: 'u1',
-  enabled: true, readonly: false, maxRows: 100,
+  enabled: true, readonly: false, maxRows: 100, production: false,
   description: '개발용. 평소 이걸 쓴다',
 };
 const PROD = {
   host: 'h2', port: 3306, database: 'd', user: 'u2',
-  enabledUntil: null, readonly: true, maxRows: 10, timeoutMs: 15000,
+  enabledUntil: null, readonly: true, maxRows: 10, timeoutMs: 15000, production: true,
   description: '운영용. 사용자가 열어줄 때만',
 };
 

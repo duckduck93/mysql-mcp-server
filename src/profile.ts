@@ -21,6 +21,13 @@ const ProfileSchema = z
     maxRows: z.number().int().positive(),
     timeoutMs: z.number().int().positive().optional(),
 
+    // 이 DB 가 운영인가. 표시(경고색)와 검증에 쓴다. 기본값을 두지 않는다 —
+    // 빠뜨리면 안전해 보이는 쪽으로 조용히 기울기 때문이다.
+    production: z.boolean(),
+
+    // 메뉴바에 찍을 짧은 이름. 없으면 프로파일 이름을 그대로 쓴다.
+    label: z.string().min(1).optional(),
+
     // Agent 가 이 프로파일을 고르는 유일한 근거라 비워둘 수 없다.
     description: z.string().min(1),
   })
@@ -47,6 +54,14 @@ const ProfileSchema = z
         code: 'custom',
         path: ['enabledUntil'],
         message: 'enabledUntil 을 시각으로 읽을 수 없다',
+      });
+    }
+    // 운영을 켜둔 채로 두는 설정 자체를 막는다. 사고는 못 켜서가 아니라 켜놓고 잊어서 난다.
+    if (raw.production === true && byFlag) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['enabledUntil'],
+        message: '운영 프로파일은 enabled 로 상시 열 수 없다. enabledUntil 로 만료 시각을 두어야 한다',
       });
     }
   });
@@ -86,6 +101,8 @@ export class Profile {
     readonly maxRows: number,
     readonly timeoutMs: number | undefined,
     readonly description: string,
+    readonly label: string,
+    readonly isProduction: boolean,
     private readonly gate: Gate,
     private readonly readonlyAccess: boolean,
   ) {}
@@ -115,7 +132,7 @@ export class Profile {
 
     return new Profile(
       name, p.host, p.port, p.database, p.user,
-      p.maxRows, p.timeoutMs, p.description,
+      p.maxRows, p.timeoutMs, p.description, p.label ?? name, p.production,
       gate, p.readonly,
     );
   }

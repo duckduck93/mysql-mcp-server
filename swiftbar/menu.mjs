@@ -105,18 +105,21 @@ try {
 }
 
 const now = new Date();
-const open = profiles.filter(p => p.isOpenAt(now));
-const openGated = open.filter(p => p.isGated);
 
-// 메뉴바는 평소 한 글자로 둔다. 노치 모델에서 상주 아이콘이 밀리기 때문이다.
-if (openGated.length === 0) {
-  console.log('⚪');
-} else {
-  const soonest = openGated.reduce((a, b) => (a.expiresAt < b.expiresAt ? a : b));
-  console.log(`🔴 ${soonest.name} ${remaining(soonest.expiresAt, now)}`);
-}
+// 프로파일마다 한 칸씩 찍는다. SwiftBar 는 여러 줄을 주면 번갈아 표시하므로,
+// 원하는 순간에 다 보이려면 한 줄에 모아야 한다.
+// 운영이 열려 있을 때만 남은 시간을 덧붙인다 — 그때가 유일하게 급한 정보다.
+const strip = profiles.map(p => {
+  const isOpen = p.isOpenAt(now);
+  const icon = !isOpen ? '⚪' : p.isProduction ? '🔴' : '🟢';
+  const kind = p.isProduction ? 'P' : 'D';
+  const left = p.isProduction && isOpen && p.expiresAt ? ` ${remaining(p.expiresAt, now)}` : '';
+  return `${icon}[${kind}]${p.label}${left}`;
+});
+console.log(strip.join(' '));
 
 console.log('---');
+console.log(`🟢 열림 · ⚪ 닫힘 · 🔴 운영 열림 | color=#888888 size=11`);
 console.log(`열려 있는 프로파일만 Agent 가 쓸 수 있습니다 | color=#888888 size=11`);
 console.log('---');
 
@@ -124,20 +127,23 @@ for (const p of profiles) {
   const isOpen = p.isOpenAt(now);
   const until = p.expiresAt ? `  ~${remaining(p.expiresAt, now)}` : '';
 
+  const tag = p.isProduction ? ' (운영)' : '';
+
   if (isOpen) {
     // 닫는 것은 한 번의 클릭으로. 급할 때 빨라야 한다.
-    // 시각으로 닫히는 프로파일이 열려 있는 것만 붉게 띄운다. 늘 열려 있는 개발까지
-    // 물들이면 경고색이 상시 켜져 있어 의미를 잃는다.
-    const color = p.isGated ? ' color=red' : '';
-    console.log(`${p.isGated ? '🔴' : '●'} ${p.name}${until} — 닫기 | ${click('close', p.name)}${color}`);
+    // 운영이 열려 있을 때만 붉게 띄운다. 늘 열려 있는 개발까지 물들이면
+    // 경고색이 상시 켜져 있어 의미를 잃는다.
+    const color = p.isProduction ? ' color=red' : '';
+    const mark = p.isProduction ? '🔴' : '🟢';
+    console.log(`${mark} ${p.name}${tag}${until} — 닫기 | ${click('close', p.name)}${color}`);
   } else if (p.isGated) {
     // 여는 것은 두 번의 클릭 + 시간 선택으로. 실수로 열리는 것을 막는다.
-    console.log(`○ ${p.name} — 열기`);
+    console.log(`⚪ ${p.name}${tag} — 열기`);
     for (const d of DURATIONS) {
       console.log(`-- ${d.label} | ${click('open', p.name, String(d.minutes))}`);
     }
   } else {
-    console.log(`○ ${p.name} — 열기 | ${click('open', p.name)}`);
+    console.log(`⚪ ${p.name}${tag} — 열기 | ${click('open', p.name)}`);
   }
   console.log(`-- ${p.description} | color=#888888`);
 }
@@ -152,7 +158,7 @@ let previous = {};
 try { previous = JSON.parse(fs.readFileSync(STATE, 'utf8')); } catch {}
 
 const next = {};
-for (const p of profiles.filter(x => x.isGated)) {
+for (const p of profiles.filter(x => x.isGated || x.isProduction)) {
   const isOpen = p.isOpenAt(now);
   const before = previous[p.name] ?? { open: false, warned: false };
   const minutesLeft = p.expiresAt ? (p.expiresAt.getTime() - now.getTime()) / 60_000 : 0;

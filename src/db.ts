@@ -19,6 +19,7 @@ export type ProfileStatus = {
   description: string;
   open: boolean;
   readonly: boolean;
+  production: boolean;
   maxRows: number;
   expiresAt?: string;
 };
@@ -62,6 +63,7 @@ export class Database {
         description: p.description,
         open: p.isOpenAt(now),
         readonly: !p.allowsWrite(),
+        production: p.isProduction,
         maxRows: p.maxRows,
       };
       if (p.expiresAt) status.expiresAt = p.expiresAt.toISOString();

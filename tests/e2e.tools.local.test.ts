@@ -30,6 +30,7 @@ function localRegistry() {
       enabled: true,
       readonly: false,
       maxRows: 10000,
+      production: false,
       description: '로컬 docker 테스트 DB',
     },
   };

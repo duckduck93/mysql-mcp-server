@@ -15,8 +15,8 @@ const CHOICES = [
 
 describe('tools/profiles', () => {
   const rows = [
-    { name: 'dev', description: '개발', open: true, readonly: false, maxRows: 100 },
-    { name: 'prod', description: '운영', open: false, readonly: true, maxRows: 10, expiresAt: '2026-08-12T11:00:00.000Z' },
+    { name: 'dev', description: '개발', open: true, readonly: false, production: false, maxRows: 100 },
+    { name: 'prod', description: '운영', open: false, readonly: true, production: true, maxRows: 10, expiresAt: '2026-08-12T11:00:00.000Z' },
   ];
 
   it('목록과 열림 상태를 돌려준다', async () => {
