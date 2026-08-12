@@ -16,17 +16,19 @@ export const queryOutput = z.object({
   elapsedMs: z.number().int().nonnegative(),
 });
 
-export function registerQueryTool(server: McpServer, db: Database, defaults: { maxRows: number; timeoutMs: number }) {
+// maxRows 를 주지 않으면 프로파일의 상한이 그대로 쓰인다.
+export function registerQueryTool(server: McpServer, db: Database, defaults: { maxRows?: number; timeoutMs: number }) {
   server.registerTool('query', {
     description: 'Execute a SELECT query and return rows with column metadata',
     inputSchema: queryInput,
     outputSchema: queryOutput,
   }, async ({ sql, params, maxRows, timeoutMs }: { sql: string; params?: any[] | undefined; maxRows?: number | undefined; timeoutMs?: number | undefined }) => {
     try {
-      const res = await db.queryRows(sql, params ?? [], {
-        maxRows: maxRows ?? defaults.maxRows,
-        timeoutMs: timeoutMs ?? defaults.timeoutMs,
-      });
+      // maxRows 를 아무도 지정하지 않으면 넘기지 않는다. 그러면 프로파일 상한이 그대로 쓰인다.
+      const opts: { maxRows?: number; timeoutMs: number } = { timeoutMs: timeoutMs ?? defaults.timeoutMs };
+      const requestedRows = maxRows ?? defaults.maxRows;
+      if (requestedRows !== undefined) opts.maxRows = requestedRows;
+      const res = await db.queryRows(sql, params ?? [], opts);
       return {
         content: [{ type: 'text', text: JSON.stringify(res, null, 2) }],
         structuredContent: res,

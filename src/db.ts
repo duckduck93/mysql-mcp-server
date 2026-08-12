@@ -1,58 +1,96 @@
 import mysql from 'mysql2/promise';
 import type { Pool, FieldPacket, RowDataPacket, ResultSetHeader, PoolOptions } from 'mysql2/promise';
 import type { AppConfig } from './config.js';
-import { KeychainSecret, type SecretResolver } from './secret-resolver.js';
+import { resolveHost } from './config.js';
+import type { Profile } from './profile.js';
+import type { ProfileRegistry } from './profile-registry.js';
+import type { SecretResolver } from './secret-resolver.js';
 
 export type QueryOptions = { timeoutMs?: number; maxRows?: number };
 export type ExecOptions = { timeoutMs?: number };
 
+export type DatabaseDeps = {
+  registry: ProfileRegistry;
+  profileName: string;
+  cfg: AppConfig & { ssl?: any };
+  secrets: SecretResolver;
+};
+
+/** 같은 접속 자격으로 만든 풀인지 가리는 열쇠. 프로파일 내용이 바뀌면 풀을 다시 만든다. */
+function identityOf(profile: Profile): string {
+  return `${profile.user}@${profile.host}:${profile.port}/${profile.database}`;
+}
+
 export class Database {
-  /** 첫 조회 때 만든다. 기동 시점에 비밀번호를 꺼내 두지 않기 위해서다. */
-  private poolPromise: Promise<Pool> | undefined;
+  private cached: { identity: string; pool: Promise<Pool> } | undefined;
 
-  constructor(
-    private cfg: AppConfig & { ssl?: any },
-    private secrets: SecretResolver,
-  ) {}
+  constructor(private readonly deps: DatabaseDeps) {}
 
-  private pool(): Promise<Pool> {
-    // 실패한 약속을 남겨두면 Keychain 에 항목을 등록해도 재시작 전까지 계속 실패한다.
-    this.poolPromise ??= this.createPool().catch(err => {
-      this.poolPromise = undefined;
-      throw err;
-    });
-    return this.poolPromise;
+  /**
+   * 지금 이 순간의 프로파일을 읽어 게이트를 통과시킨 뒤 풀을 준다.
+   *
+   * 프로파일은 매 호출마다 다시 읽는다. 파일을 저장하는 순간 차단이 걸리게 하기 위해서다.
+   */
+  private async open(): Promise<{ pool: Pool; profile: Profile }> {
+    const profile = this.deps.registry.get(this.deps.profileName);
+    profile.assertOpenAt(new Date());
+    return { pool: await this.poolFor(profile), profile };
   }
 
-  private async createPool(): Promise<Pool> {
-    const conf = this.cfg;
-    const password = await this.secrets.resolve(
-      KeychainSecret.forProfile({ profile: conf.MYSQL_PROFILE, account: conf.MYSQL_USER }),
-    );
-    const opts: PoolOptions = {
-      host: conf.MYSQL_HOST,
-      port: conf.MYSQL_PORT,
-      user: conf.MYSQL_USER,
-      password,
-      database: conf.MYSQL_DATABASE,
-      ssl: conf.ssl,
-      waitForConnections: true,
-      connectionLimit: conf.MYSQL_POOL_MAX,
-      queueLimit: 0,
-      connectTimeout: conf.MYSQL_CONNECT_TIMEOUT_MS,
-    };
-    if (conf.MYSQL_TIMEZONE !== undefined) {
-      (opts as any).timezone = conf.MYSQL_TIMEZONE;
+  private poolFor(profile: Profile): Promise<Pool> {
+    const identity = identityOf(profile);
+    if (this.cached && this.cached.identity !== identity) {
+      // 접속 자격이 바뀌었다. 옛 풀은 뒤에서 정리하고 새로 만든다.
+      const stale = this.cached.pool;
+      this.cached = undefined;
+      void stale.then(p => p.end()).catch(() => {});
     }
-    if (conf.MYSQL_CHARSET !== undefined) {
-      (opts as any).charset = conf.MYSQL_CHARSET;
+    if (!this.cached) {
+      // 실패한 약속을 남겨두면 비밀번호를 등록해도 재시작 전까지 계속 실패한다.
+      const pool = this.createPool(profile).catch(err => {
+        this.cached = undefined;
+        throw err;
+      });
+      this.cached = { identity, pool };
+    }
+    return this.cached.pool;
+  }
+
+  private async createPool(profile: Profile): Promise<Pool> {
+    const { cfg, secrets } = this.deps;
+    const password = await secrets.resolve(profile.secretLocation());
+    const opts: PoolOptions = {
+      host: resolveHost(profile.host),
+      port: profile.port,
+      user: profile.user,
+      password,
+      database: profile.database,
+      ssl: cfg.ssl,
+      waitForConnections: true,
+      connectionLimit: cfg.MYSQL_POOL_MAX,
+      queueLimit: 0,
+      connectTimeout: cfg.MYSQL_CONNECT_TIMEOUT_MS,
+    };
+    if (cfg.MYSQL_TIMEZONE !== undefined) {
+      (opts as any).timezone = cfg.MYSQL_TIMEZONE;
+    }
+    if (cfg.MYSQL_CHARSET !== undefined) {
+      (opts as any).charset = cfg.MYSQL_CHARSET;
     }
     return mysql.createPool(opts);
   }
 
+  /** 프로파일 상한을 넘지 못하게 조인다. 도구가 더 큰 값을 요청해도 프로파일이 이긴다. */
+  private limitsFor(profile: Profile, opts: QueryOptions | ExecOptions) {
+    const requestedTimeout = opts.timeoutMs ?? profile.timeoutMs ?? this.deps.cfg.MYSQL_QUERY_TIMEOUT_MS;
+    const timeoutMs = profile.timeoutMs ? Math.min(requestedTimeout, profile.timeoutMs) : requestedTimeout;
+    const requestedRows = (opts as QueryOptions).maxRows ?? profile.maxRows;
+    return { timeoutMs, maxRows: Math.min(requestedRows, profile.maxRows) };
+  }
+
   async close(): Promise<void> {
-    const pending = this.poolPromise;
-    this.poolPromise = undefined;
+    const pending = this.cached?.pool;
+    this.cached = undefined;
     if (!pending) return;
     await (await pending).end();
   }
@@ -66,27 +104,29 @@ export class Database {
   }
 
   async queryRows(sql: string, params: any[] = [], opts: QueryOptions = {}) {
-    const pool = await this.pool();
+    const { pool, profile } = await this.open();
+    const limits = this.limitsFor(profile, opts);
     const start = Date.now();
     const promise = pool.execute<RowDataPacket[]>(sql, params);
-    const [rows, fields] = await this.withTimeout(promise, opts.timeoutMs ?? undefined, 'query');
+    const [rows, fields] = await this.withTimeout(promise, limits.timeoutMs, 'query');
 
     // fields may be undefined for some statements
     const columns = (fields ?? []).map((f: any) => ({ name: f.name as string, type: String(f.type ?? '') }));
 
-    const maxRows = opts.maxRows ?? Infinity;
-    const truncated = Array.isArray(rows) && rows.length > maxRows;
-    const limitedRows = truncated ? (rows as any[]).slice(0, maxRows) : rows;
+    const truncated = Array.isArray(rows) && rows.length > limits.maxRows;
+    const limitedRows = truncated ? (rows as any[]).slice(0, limits.maxRows) : rows;
 
     const elapsedMs = Date.now() - start;
     return { rows: limitedRows, columns, truncated, elapsedMs };
   }
 
   async execute(sql: string, params: any[] = [], opts: ExecOptions = {}) {
-    const pool = await this.pool();
+    const { pool, profile } = await this.open();
+    profile.assertWritable();
+    const limits = this.limitsFor(profile, opts);
     const start = Date.now();
     const promise = pool.execute<ResultSetHeader>(sql, params);
-    const [result] = await this.withTimeout(promise, opts.timeoutMs ?? undefined, 'execute');
+    const [result] = await this.withTimeout(promise, limits.timeoutMs, 'execute');
     const { affectedRows, insertId, warningStatus } = result as ResultSetHeader;
     const elapsedMs = Date.now() - start;
     return { affectedRows, insertId, warningStatus, elapsedMs };
@@ -149,6 +189,6 @@ export class Database {
   }
 }
 
-export function createDatabase(cfg: AppConfig & { ssl?: any }, secrets: SecretResolver) {
-  return new Database(cfg, secrets);
+export function createDatabase(deps: DatabaseDeps) {
+  return new Database(deps);
 }

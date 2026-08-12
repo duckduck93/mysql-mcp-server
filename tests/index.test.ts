@@ -17,6 +17,14 @@ vi.mock('../src/db.js', () => ({
   createDatabase: vi.fn(() => ({ close: dbClose })),
 }));
 
+const registryGet = vi.fn();
+vi.mock('../src/profile-registry.js', () => ({
+  ProfileRegistry: {
+    atPath: vi.fn(() => ({ get: registryGet })),
+    defaultPath: vi.fn(() => '/tmp/profiles.json'),
+  },
+}));
+
 function makeRegistrar(name: string) {
   const fn = vi.fn();
   registerSpies[name] = fn;
@@ -75,12 +83,15 @@ describe('index.ts bootstrap', () => {
     expect(registerSpies.registerExplainTool).toHaveBeenCalledTimes(1);
     expect(registerSpies.registerVersionTool).toHaveBeenCalledTimes(1);
 
-    // 비밀번호를 기동 시 환경변수로 받지 않고, 조회기를 받아 접속 시점에 꺼낸다
+    // 접속정보는 레지스트리에서, 비밀번호는 조회기에서 접속 시점에 온다
     const { createDatabase } = await import('../src/db.js');
-    expect(createDatabase).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ resolve: expect.any(Function) }),
-    );
+    expect(createDatabase).toHaveBeenCalledWith(expect.objectContaining({
+      profileName: 'testprofile',
+      registry: expect.objectContaining({ get: expect.any(Function) }),
+      secrets: expect.objectContaining({ resolve: expect.any(Function) }),
+    }));
+    // 기동 시점에 프로파일 이름이 유효한지 확인한다
+    expect(registryGet).toHaveBeenCalledWith('testprofile');
 
     expect(connectSpy).toHaveBeenCalledTimes(1);
     // Two shutdown handlers should be registered

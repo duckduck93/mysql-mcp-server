@@ -3,15 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const ConfigSchema = z.object({
-  MYSQL_HOST: z.string().min(1),
-  MYSQL_PORT: z.coerce.number().int().positive().default(3306),
-  MYSQL_USER: z.string().min(1),
-  MYSQL_DATABASE: z.string().min(1),
-
-  // 비밀번호는 설정에 싣지 않는다. 선언한 출처에서 접속 시점에 꺼낸다.
-  // keychain 이면 서비스명 `mysql-mcp/<MYSQL_PROFILE>`, env 면 MYSQL_PASSWORD.
+  // 접속정보(host·port·user·database)는 여기 없다. profiles.json 이 갖는다.
+  // 비밀번호도 없다. 선언한 출처에서 접속 시점에 꺼낸다.
   MYSQL_PROFILE: z.string().min(1),
   MYSQL_SECRET_SOURCE: z.enum(['keychain', 'env']).default('keychain'),
+  MYSQL_PROFILES: z.string().optional(),
 
   MYSQL_SSL: z.enum(['off', 'required', 'verify_ca']).default('off'),
   MYSQL_SSL_CA_BASE64: z.string().optional(),
@@ -27,7 +23,6 @@ export const ConfigSchema = z.object({
   MYSQL_POOL_MIN: z.coerce.number().int().min(0).default(0),
   MYSQL_POOL_MAX: z.coerce.number().int().min(1).default(10),
 
-  MAX_ROWS: z.coerce.number().int().min(1).default(10_000),
   LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug']).default('info'),
 });
 
@@ -36,6 +31,40 @@ export type AppConfig = z.infer<typeof ConfigSchema>;
 function fromBase64(b64?: string): Buffer | undefined {
   if (!b64) return undefined;
   return Buffer.from(b64, 'base64');
+}
+
+function runningInDocker(env: Record<string, string | undefined>): boolean {
+  // Prefer explicit env flag first for testability and control
+  const flag = String(env.MYSQL_IN_DOCKER ?? '').toLowerCase();
+  if (flag === '1' || flag === 'true' || flag === 'yes') return true;
+  if (flag === '0' || flag === 'false' || flag === 'no') return false;
+  try {
+    // 1) Docker specific file
+    if (fs.existsSync('/.dockerenv')) return true;
+  } catch {}
+  try {
+    // 2) Check cgroup/hints (lightweight: existence often indicates containerized env)
+    if (fs.existsSync('/proc/1/cgroup')) return true;
+  } catch {}
+  // 3) Fallback: some orchestrators mount container-specific dirs
+  try {
+    if (fs.existsSync(path.join('/', 'run', 'dockershim.sock'))) return true;
+  } catch {}
+  return false;
+}
+
+/**
+ * 컨테이너 안에서 "localhost" 가 호스트 머신을 가리키도록 바꿔 준다.
+ *
+ * 프로파일의 host 에 적용한다. 동작은 환경변수로 끌 수 있다.
+ * - MYSQL_HOST_RESOLVE: 'auto'(기본) | 'off'
+ * - MYSQL_HOST_DOCKER: 바꿔 넣을 호스트 (기본 host.docker.internal)
+ */
+export function resolveHost(host: string, env: Record<string, string | undefined> = process.env): string {
+  const mode = (env.MYSQL_HOST_RESOLVE ?? 'auto').toString();
+  const isLoopback = host === 'localhost' || host === '127.0.0.1';
+  if (mode === 'off' || !isLoopback || !runningInDocker(env)) return host;
+  return env.MYSQL_HOST_DOCKER || 'host.docker.internal';
 }
 
 export function loadConfig(env = process.env): AppConfig & {
@@ -47,45 +76,6 @@ export function loadConfig(env = process.env): AppConfig & {
   };
 } {
   const parsed = ConfigSchema.parse(env);
-
-  // Resolve MYSQL_HOST when running inside Docker to make "localhost" work.
-  // In Docker containers, "localhost" refers to the container itself, not the host
-  // where the MySQL server may actually be running. On Mac/Windows Docker,
-  // "host.docker.internal" points back to the host machine.
-  // Behavior can be controlled via optional envs:
-  // - MYSQL_HOST_RESOLVE: 'auto' (default) | 'off'
-  // - MYSQL_HOST_DOCKER: override target host when remapping (default: host.docker.internal)
-  const resolveMode = (env.MYSQL_HOST_RESOLVE ?? 'auto').toString();
-  let MYSQL_HOST = parsed.MYSQL_HOST;
-
-  function runningInDocker(): boolean {
-    // Prefer explicit env flag first for testability and control
-    const flag = String(env.MYSQL_IN_DOCKER ?? '').toLowerCase();
-    if (flag === '1' || flag === 'true' || flag === 'yes') return true;
-    if (flag === '0' || flag === 'false' || flag === 'no') return false;
-    try {
-      // 1) Docker specific file
-      if (fs.existsSync('/.dockerenv')) return true;
-    } catch {}
-    try {
-      // 2) Check cgroup/hints (lightweight: existence often indicates containerized env)
-      const procCgroup = '/proc/1/cgroup';
-      if (fs.existsSync(procCgroup)) return true;
-    } catch {}
-    // 3) Fallback: some orchestrators mount container-specific dirs
-    try {
-      if (fs.existsSync(path.join('/', 'run', 'dockershim.sock'))) return true;
-    } catch {}
-    return false;
-  }
-
-  if (
-    resolveMode !== 'off' &&
-    (MYSQL_HOST === 'localhost' || MYSQL_HOST === '127.0.0.1') &&
-    runningInDocker()
-  ) {
-    MYSQL_HOST = env.MYSQL_HOST_DOCKER || 'host.docker.internal';
-  }
 
   const sslMode = parsed.MYSQL_SSL;
   let ssl: undefined | { ca?: Buffer; cert?: Buffer; key?: Buffer; rejectUnauthorized?: boolean } = undefined;
@@ -103,5 +93,5 @@ export function loadConfig(env = process.env): AppConfig & {
     ssl = obj;
   }
 
-  return { ...parsed, MYSQL_HOST, ssl } as any;
+  return { ...parsed, ssl } as any;
 }

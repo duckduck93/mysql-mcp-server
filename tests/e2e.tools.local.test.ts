@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import { createDatabase, Database } from '../src/db.js';
+import { ProfileRegistry } from '../src/profile-registry.js';
 import { registerQueryTool } from '../src/tools/query.js';
 import { registerExecuteTool } from '../src/tools/execute.js';
 import { registerShowTablesTool } from '../src/tools/show_tables.js';
@@ -16,21 +17,39 @@ class FakeServer {
   }
 }
 
+const E2E_PROFILE = 'e2e-local';
+
+/** 파일 대신 메모리에서 읽는 레지스트리. 로컬 docker DB 를 가리킨다. */
+function localRegistry() {
+  const profiles = {
+    [E2E_PROFILE]: {
+      host: process.env.MYSQL_HOST || 'localhost',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      database: process.env.MYSQL_DATABASE || 'test_db',
+      user: process.env.MYSQL_USER || 'test_user',
+      enabled: true,
+      readonly: false,
+      maxRows: 10000,
+      description: '로컬 docker 테스트 DB',
+    },
+  };
+  return ProfileRegistry.withReader('e2e-memory.json', () => JSON.stringify(profiles));
+}
+
 async function tryInitDb(): Promise<{ db: Database; cleanup: () => Promise<void> } | null> {
-  // Provide default local env for tests
-  process.env.MYSQL_HOST = process.env.MYSQL_HOST || 'localhost';
-  process.env.MYSQL_PORT = process.env.MYSQL_PORT || '3306';
-  process.env.MYSQL_USER = process.env.MYSQL_USER || 'test_user';
-  process.env.MYSQL_DATABASE = process.env.MYSQL_DATABASE || 'test_db';
-  process.env.MYSQL_PROFILE = process.env.MYSQL_PROFILE || 'e2e-local';
+  process.env.MYSQL_PROFILE = E2E_PROFILE;
   process.env.MYSQL_SSL = process.env.MYSQL_SSL || 'off';
   process.env.MYSQL_CONNECT_TIMEOUT_MS = process.env.MYSQL_CONNECT_TIMEOUT_MS || '5000';
   process.env.MYSQL_QUERY_TIMEOUT_MS = process.env.MYSQL_QUERY_TIMEOUT_MS || '60000';
-  process.env.MAX_ROWS = process.env.MAX_ROWS || '10000';
 
   const cfg = loadConfig();
   // 로컬 테스트 DB 라 Keychain 을 태우지 않고 고정 비밀번호 대역을 넣는다.
-  const db = createDatabase(cfg, { resolve: async () => process.env.MYSQL_E2E_PASSWORD || 'sample_pass_123' });
+  const db = createDatabase({
+    registry: localRegistry(),
+    profileName: E2E_PROFILE,
+    cfg,
+    secrets: { resolve: async () => process.env.MYSQL_E2E_PASSWORD || 'sample_pass_123' },
+  });
   try {
     // simple connectivity check
     await db.version();
@@ -68,7 +87,7 @@ describe('E2E tools (optional, local MySQL)', () => {
     const server = new FakeServer();
 
     const cfg = loadConfig();
-    registerQueryTool(server as any, db, { maxRows: cfg.MAX_ROWS, timeoutMs: cfg.MYSQL_QUERY_TIMEOUT_MS });
+    registerQueryTool(server as any, db, { timeoutMs: cfg.MYSQL_QUERY_TIMEOUT_MS });
     registerExecuteTool(server as any, db, { timeoutMs: cfg.MYSQL_QUERY_TIMEOUT_MS });
     registerShowTablesTool(server as any, db);
     registerDescribeTableTool(server as any, db);
