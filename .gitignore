@@ -230,3 +230,6 @@ profiles.*.json
 diag.mjs
 dbsafer-diag.mjs
 .scratch/
+
+# 개발 인수인계 문서 — 사내 작업 절차라 공개 저장소에 올리지 않는다
+CLAUDE.md
