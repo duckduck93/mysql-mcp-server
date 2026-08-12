@@ -17,8 +17,15 @@ describe('tools/query', () => {
   it('profile 을 필수로 받고 기본값을 두지 않는다', () => {
     const input = buildQueryInput(CHOICES);
     expect(() => input.parse({ sql: 'SELECT 1' })).toThrow();
+    expect(() => input.parse({ profile: '', sql: 'SELECT 1' })).toThrow();
     expect(() => input.parse({ profile: 'dev', sql: 'SELECT 1' })).not.toThrow();
-    expect(() => input.parse({ profile: 'nope', sql: 'SELECT 1' })).toThrow();
+  });
+
+  it('목록에 없는 이름도 스키마는 통과시킨다 — 검증은 서버가 한다', () => {
+    // enum 으로 굳히면 프로파일을 추가할 때마다 /mcp 재접속이 필요해진다.
+    // 이름이 틀리면 레지스트리가 유효 목록과 함께 실패시킨다.
+    const input = buildQueryInput(CHOICES);
+    expect(() => input.parse({ profile: 'newly-added', sql: 'SELECT 1' })).not.toThrow();
   });
 
   it('프로파일 후보의 설명을 인자 설명에 그대로 싣는다', () => {

@@ -25,8 +25,12 @@ Features
 Profiles (profiles.json)
 
 Connection details live in `profiles.json`, not in environment variables. The file is read on
-**every tool call**, so opening or closing a profile takes effect immediately — no restart needed.
-Adding or removing a profile does need a restart, because the tool schema is fixed per session.
+**every tool call**, so edits take effect immediately — opening, closing, changing connection
+details, and adding or removing profiles all apply without a restart.
+
+A restart is only needed when the server itself is upgraded and `profiles.json` gains a field the
+running build does not know about. Unknown fields are rejected on purpose, so a stray `password`
+fails loudly instead of being silently ignored.
 
 Copy `profiles.example.json` and fill it in. Restrict the permissions: `chmod 600 profiles.json`.
 
@@ -145,6 +149,12 @@ MCP Tools
 
 Every tool except `profiles` takes a required `profile` argument. There is no default — the agent
 must choose one, using the `description` of each profile as the basis.
+
+The argument is a plain string, not an enum. The tool schema is exchanged once per session, so an
+enum would freeze the list and force a restart whenever a profile is added. The name is validated
+by the registry at call time instead, and an unknown name fails with the list of valid ones. The
+candidate list carried in the argument description is from startup — call `profiles` for the
+current one.
 
 - profiles
   - input: {}

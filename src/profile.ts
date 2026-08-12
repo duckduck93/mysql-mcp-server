@@ -121,7 +121,12 @@ export class Profile {
       const detail = parsed.error.issues
         .map(issue => `${issue.path.join('.') || '(전체)'} — ${issue.message}`)
         .join('; ');
-      throw new Error(`프로파일 '${name}' 설정이 잘못됐다: ${detail}`);
+      // 모르는 키는 파일이 틀린 경우보다 서버가 뒤처진 경우가 흔하다.
+      // 파일만 의심하다 시간을 버리지 않도록 그 가능성을 함께 알린다.
+      const stale = parsed.error.issues.some(issue => issue.code === 'unrecognized_keys')
+        ? ' (모르는 키라면 서버가 옛 빌드일 수 있다. npm run build 후 /mcp 재접속을 확인한다.)'
+        : '';
+      throw new Error(`프로파일 '${name}' 설정이 잘못됐다: ${detail}${stale}`);
     }
 
     const p = parsed.data;

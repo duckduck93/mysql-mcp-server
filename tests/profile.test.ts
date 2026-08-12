@@ -36,6 +36,13 @@ describe('Profile — 접속정보', () => {
     expect(JSON.stringify(profile())).not.toContain('password');
     expect(() => Profile.from({ name: 'dev', raw: raw({ password: 'p' }) })).toThrow(/password/);
   });
+
+  it('모르는 키가 있으면 서버가 옛 빌드일 가능성을 함께 알린다', () => {
+    // 필드를 추가한 뒤 재빌드하지 않으면 파일 전체를 못 읽는다.
+    // 그때 사용자가 파일만 의심하지 않도록 안내한다.
+    expect(() => Profile.from({ name: 'dev', raw: raw({ someNewField: 1 }) }))
+      .toThrow(/옛 빌드/);
+  });
 });
 
 describe('Profile — 필수값이 빠지면 즉시 실패한다', () => {
