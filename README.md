@@ -21,7 +21,6 @@ Features
   - explain: Execution plan for a SELECT
   - version: Database version string
 - Connection pooling, timeouts, SSL options
-- Containerized via Docker
 
 Profiles (profiles.json)
 
@@ -136,22 +135,11 @@ On platforms without a keychain implementation:
 MYSQL_SECRET_SOURCE=env MYSQL_PASSWORD=secret node dist/index.js
 ```
 
-Docker
-Build image:
+3) Optional: a local MySQL for the end-to-end tests
 ```
-docker build -t mysql-mcp-server .
+docker compose -f docker-compose.test.yml up -d
 ```
-
-Run container (stdio). The profiles file must be mounted, and the password comes from the
-environment because the container has no keychain. Use `host.docker.internal` for a database
-running on the host, or leave `host` as a loopback address and let the automatic remap handle it.
-```
-docker run --rm -i \
-  -v "$PWD/profiles.json:/app/profiles.json:ro" \
-  -e MYSQL_SECRET_SOURCE=env \
-  -e MYSQL_PASSWORD=secret \
-  mysql-mcp-server
-```
+The e2e tests skip themselves when no database is reachable.
 
 MCP Tools
 
