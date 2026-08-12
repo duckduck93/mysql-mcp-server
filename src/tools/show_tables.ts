@@ -1,29 +1,33 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Database } from '../db.js';
-
-export const showTablesInput = z.object({
-  includeViews: z.boolean().optional().describe('Include views in the list (default: false)')
-});
+import { profileArg, type ProfileChoice } from './profile-arg.js';
 
 export const showTablesOutput = z.object({
   tables: z.array(z.object({ name: z.string(), type: z.enum(['BASE TABLE', 'VIEW']) }))
 });
 
-export function registerShowTablesTool(server: McpServer, db: Database) {
+export function buildShowTablesInput(choices: ProfileChoice[]) {
+  return z.object({
+    profile: profileArg(choices),
+    includeViews: z.boolean().optional().describe('Include views in the list (default: false)'),
+  });
+}
+
+export function registerShowTablesTool(server: McpServer, db: Database, opts: { choices: ProfileChoice[] }) {
   server.registerTool('show_tables', {
     description: 'List tables in the current database (optionally include views)',
-    inputSchema: showTablesInput,
+    inputSchema: buildShowTablesInput(opts.choices),
     outputSchema: showTablesOutput,
-  }, async ({ includeViews }: { includeViews?: boolean | undefined }) => {
+  }, async ({ profile, includeViews }: { profile: string; includeViews?: boolean | undefined }) => {
     try {
-      const rows = await db.showTables(includeViews ?? false);
+      const rows = await db.showTables({ profile, includeViews: includeViews ?? false });
       const res = { tables: rows };
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;
     } catch (err: any) {
       const e = err instanceof Error ? err : new Error(String(err));
       const ts = new Date().toISOString();
-      const input = { includeViews: includeViews ?? false };
+      const input = { profile, includeViews: includeViews ?? false };
       const details: Record<string, any> = {};
       // Surface common mysql2 error fields if present
       for (const k of ['code', 'errno', 'sql', 'sqlState', 'sqlMessage']) {

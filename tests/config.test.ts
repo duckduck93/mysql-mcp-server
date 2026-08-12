@@ -2,33 +2,23 @@ import { describe, it, expect } from 'vitest';
 import { ConfigSchema, loadConfig, resolveHost } from '../src/config.js';
 
 function baseEnv() {
-  return {
-    MYSQL_PROFILE: 'testprofile',
-  } as any;
+  return {} as any;
 }
 
 describe('config.ts', () => {
-  it('validates required fields', () => {
-    expect(ConfigSchema.safeParse(baseEnv()).success).toBe(true);
+  it('환경변수가 하나도 없어도 기동한다 — 접속정보는 profiles.json 이 갖는다', () => {
+    expect(ConfigSchema.safeParse({}).success).toBe(true);
   });
 
-  it('fails when required fields missing', () => {
-    expect(ConfigSchema.safeParse({}).success).toBe(false);
-  });
-
-  it('MYSQL_PROFILE 이 없으면 기동하지 않는다', () => {
-    const { MYSQL_PROFILE, ...withoutProfile } = baseEnv();
-    expect(ConfigSchema.safeParse(withoutProfile).success).toBe(false);
-  });
-
-  it('접속정보와 비밀번호는 설정으로 싣지 않는다 — profiles.json 이 갖는다', () => {
+  it('접속정보·프로파일명·비밀번호는 설정으로 싣지 않는다', () => {
     const cfg = loadConfig({
-      ...baseEnv(), MYSQL_HOST: 'h', MYSQL_USER: 'u', MYSQL_DATABASE: 'd', MYSQL_PASSWORD: 'p',
+      MYSQL_HOST: 'h', MYSQL_USER: 'u', MYSQL_DATABASE: 'd', MYSQL_PASSWORD: 'p', MYSQL_PROFILE: 'x',
     } as any);
     expect((cfg as any).MYSQL_HOST).toBeUndefined();
     expect((cfg as any).MYSQL_USER).toBeUndefined();
     expect((cfg as any).MYSQL_DATABASE).toBeUndefined();
     expect((cfg as any).MYSQL_PASSWORD).toBeUndefined();
+    expect((cfg as any).MYSQL_PROFILE).toBeUndefined();
   });
 
   it('비밀번호 출처는 기본이 keychain 이고 env 로 바꿀 수 있다', () => {

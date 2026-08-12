@@ -4,8 +4,8 @@ import path from 'node:path';
 
 export const ConfigSchema = z.object({
   // 접속정보(host·port·user·database)는 여기 없다. profiles.json 이 갖는다.
+  // 어느 프로파일을 쓸지도 여기 없다. 도구 호출마다 Agent 가 인자로 고른다.
   // 비밀번호도 없다. 선언한 출처에서 접속 시점에 꺼낸다.
-  MYSQL_PROFILE: z.string().min(1),
   MYSQL_SECRET_SOURCE: z.enum(['keychain', 'env']).default('keychain'),
   MYSQL_PROFILES: z.string().optional(),
 

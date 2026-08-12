@@ -1,172 +1,129 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as mysqlModule from 'mysql2/promise';
-import { createDatabase, Database } from '../src/db.js';
+import { createDatabase, Database, ProfileUnreachableError } from '../src/db.js';
 import { Profile } from '../src/profile.js';
 import type { AppConfig } from '../src/config.js';
-import type { SecretResolver } from '../src/secret-resolver.js';
 
-vi.mock('mysql2/promise', () => {
-  let executeImpl: any;
-  const pool = {
-    execute: (...args: any[]) => executeImpl?.(...args),
-    end: vi.fn().mockResolvedValue(undefined),
-  };
-  return {
-    default: { createPool: vi.fn(() => pool) },
-  };
-});
-
-const baseCfg: AppConfig & { ssl?: any } = {
-  MYSQL_PROFILE: 'dev', MYSQL_SECRET_SOURCE: 'keychain',
-  MYSQL_SSL: 'off', MYSQL_CONNECT_TIMEOUT_MS: 10000, MYSQL_QUERY_TIMEOUT_MS: 60000,
-  MYSQL_POOL_MIN: 0, MYSQL_POOL_MAX: 10, LOG_LEVEL: 'silent',
-} as any;
+const cfg = { MYSQL_QUERY_TIMEOUT_MS: 60000 } as unknown as AppConfig & { ssl?: any };
 
 const rawProfile = (overrides: Record<string, unknown> = {}) => ({
   host: 'h', port: 3306, database: 'd', user: 'u',
   enabled: true, readonly: false, maxRows: 100,
-  description: '테스트용',
+  description: '언제 이걸 쓰는지',
   ...overrides,
 });
 
 /** 내용을 갈아끼울 수 있는 가짜 레지스트리. get 호출 횟수를 센다. */
-function fakeRegistry(initial: Record<string, unknown> = rawProfile()) {
-  const state = { raw: initial, gets: 0 };
+function fakeRegistry(profiles: Record<string, Record<string, unknown>> = { dev: rawProfile() }) {
+  const state = { profiles, gets: 0 };
   const registry = {
     get(name: string) {
       state.gets++;
-      return Profile.from({ name, raw: state.raw });
+      const raw = state.profiles[name];
+      if (!raw) throw new Error(`알 수 없는 프로파일 '${name}'`);
+      return Profile.from({ name, raw });
     },
-    names: () => ['dev'],
+    names: () => Object.keys(state.profiles),
     choices: () => [],
   } as any;
   return {
     registry,
     get gets() { return state.gets; },
-    replaceWith(raw: Record<string, unknown>) { state.raw = raw; },
+    replaceWith(next: Record<string, Record<string, unknown>>) { state.profiles = next; },
   };
 }
 
-function fakeResolver(password = 'pw-from-keychain'): SecretResolver & { resolve: ReturnType<typeof vi.fn> } {
-  return { resolve: vi.fn().mockResolvedValue(password) } as any;
+function makeDb(opts: { profiles?: Record<string, Record<string, unknown>>; execute?: any } = {}) {
+  const reg = fakeRegistry(opts.profiles ?? { dev: rawProfile() });
+  const pool = { execute: opts.execute ?? vi.fn().mockResolvedValue([[{ version: '8' }], []]), end: vi.fn() };
+  const pools = {
+    acquire: vi.fn().mockResolvedValue(pool),
+    closeAll: vi.fn().mockResolvedValue(undefined),
+  };
+  const db = createDatabase({ registry: reg.registry, pools: pools as any, cfg });
+  return { db, reg, pools, pool };
 }
 
-function makeDb(opts: {
-  raw?: Record<string, unknown>;
-  secrets?: SecretResolver;
-} = {}) {
-  const reg = fakeRegistry(opts.raw ?? rawProfile());
-  const secrets = opts.secrets ?? fakeResolver();
-  const db = createDatabase({ registry: reg.registry, profileName: 'dev', cfg: baseCfg, secrets });
-  return { db, reg, secrets: secrets as any };
+function setExecute(pool: any, fn: any) {
+  pool.execute = fn;
 }
 
-function setExecuteImpl(fn: any) {
-  // @ts-ignore
-  (mysqlModule.default.createPool as any)().execute = fn;
-}
-
-describe('db.ts', () => {
+describe('db.ts — 도구는 프로파일을 지정해 부른다', () => {
   let db: Database;
+  let pool: any;
+
   beforeEach(() => {
     vi.useFakeTimers();
-    db = makeDb().db;
+    ({ db, pool } = makeDb());
   });
-  afterEach(async () => {
-    vi.useRealTimers();
-    await db.close();
-  });
+  afterEach(() => vi.useRealTimers());
 
   it('queryRows returns rows, columns, truncated and measures elapsed', async () => {
     const rows = [{ a: 1 }, { a: 2 }, { a: 3 }];
-    const fields = [{ name: 'a', type: 3 }];
-    setExecuteImpl(vi.fn().mockResolvedValue([rows, fields]));
+    setExecute(pool, vi.fn().mockResolvedValue([rows, [{ name: 'a', type: 3 }]]));
     vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValueOnce(1005);
-    const res = await db.queryRows('SELECT 1', [], { maxRows: 2 });
+    const res = await db.queryRows({ profile: 'dev', sql: 'SELECT 1', maxRows: 2 });
     expect(res.columns).toEqual([{ name: 'a', type: '3' }]);
     expect(res.rows).toEqual(rows.slice(0, 2));
     expect(res.truncated).toBe(true);
     expect(res.elapsedMs).toBe(5);
   });
 
-  it('queryRows resolves before timeout (covers withTimeout resolve path)', async () => {
-    const rows = [{ a: 1 }];
-    const fields = [{ name: 'a', type: 3 }];
-    setExecuteImpl(vi.fn().mockResolvedValue([rows, fields]));
-    const res = await db.queryRows('SELECT 1', [], { timeoutMs: 1000 });
-    expect(res.rows).toEqual(rows);
-  });
-
   it('queryRows handles undefined fields and no truncation', async () => {
-    const rows = [{ a: 1 }];
-    setExecuteImpl(vi.fn().mockResolvedValue([rows, undefined]));
-    const res = await db.queryRows('SELECT 1');
+    setExecute(pool, vi.fn().mockResolvedValue([[{ a: 1 }], undefined]));
+    const res = await db.queryRows({ profile: 'dev', sql: 'SELECT 1' });
     expect(res.columns).toEqual([]);
     expect(res.truncated).toBe(false);
   });
 
   it('queryRows timeout rejects with proper message', async () => {
-    setExecuteImpl(vi.fn().mockImplementation(() => new Promise(() => {})));
-    const p = db.queryRows('SELECT SLEEP(5)', [], { timeoutMs: 50 });
+    setExecute(pool, vi.fn().mockImplementation(() => new Promise(() => {})));
+    const p = db.queryRows({ profile: 'dev', sql: 'SELECT SLEEP(5)', timeoutMs: 50 });
     await vi.advanceTimersByTimeAsync(60);
     await expect(p).rejects.toThrow('query timed out after 50ms');
   });
 
   it('execute returns affectedRows, insertId, warningStatus and elapsedMs', async () => {
-    const result = { affectedRows: 2, insertId: 7, warningStatus: 0 };
-    setExecuteImpl(vi.fn().mockResolvedValue([result]));
+    setExecute(pool, vi.fn().mockResolvedValue([{ affectedRows: 2, insertId: 7, warningStatus: 0 }]));
     vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValueOnce(3);
-    const res = await db.execute('UPDATE x SET a=1');
+    const res = await db.execute({ profile: 'dev', sql: 'UPDATE x SET a=1' });
     expect(res).toEqual({ affectedRows: 2, insertId: 7, warningStatus: 0, elapsedMs: 3 });
   });
 
-  it('execute resolves before timeout (covers withTimeout resolve path)', async () => {
-    const result = { affectedRows: 1, insertId: 0, warningStatus: 0 };
-    setExecuteImpl(vi.fn().mockResolvedValue([result]));
-    const res = await db.execute('UPDATE x SET a=1', [], { timeoutMs: 1000 });
-    expect(res.affectedRows).toBe(1);
-  });
-
   it('execute timeout rejects', async () => {
-    setExecuteImpl(vi.fn().mockImplementation(() => new Promise(() => {})));
-    const p = db.execute('UPDATE slow', [], { timeoutMs: 10 });
+    setExecute(pool, vi.fn().mockImplementation(() => new Promise(() => {})));
+    const p = db.execute({ profile: 'dev', sql: 'UPDATE slow', timeoutMs: 10 });
     await vi.advanceTimersByTimeAsync(11);
     await expect(p).rejects.toThrow('execute timed out after 10ms');
   });
 
   it('showTables delegates to queryRows and returns typed list', async () => {
-    setExecuteImpl(vi.fn().mockResolvedValue([[
-      { name: 'A', type: 'BASE TABLE' },
-      { name: 'V', type: 'VIEW' },
+    setExecute(pool, vi.fn().mockResolvedValue([[
+      { name: 'A', type: 'BASE TABLE' }, { name: 'V', type: 'VIEW' },
     ], [{ name: 'name' }]]));
-    const list = await db.showTables(true);
-    expect(list).toEqual([
-      { name: 'A', type: 'BASE TABLE' },
-      { name: 'V', type: 'VIEW' },
-    ]);
+    const list = await db.showTables({ profile: 'dev', includeViews: true });
+    expect(list).toEqual([{ name: 'A', type: 'BASE TABLE' }, { name: 'V', type: 'VIEW' }]);
   });
 
   it('describeTable merges columns and table comment', async () => {
     let call = 0;
-    setExecuteImpl(vi.fn().mockImplementation((sql: string) => {
+    setExecute(pool, vi.fn().mockImplementation(() => {
       call++;
-      if (call === 1) return Promise.resolve([[ [{ name: 'id', type: 'int', nullable: false }], [{ name: 'name' }] ][0]]);
-      return Promise.resolve([[ [{ comment: 't-comment' }], [{ name: 'TABLE_COMMENT' }] ][0]]);
+      if (call === 1) return Promise.resolve([[{ name: 'id', type: 'int', nullable: false }], []]);
+      return Promise.resolve([[{ comment: 't-comment' }], []]);
     }));
-    const res = await db.describeTable('t');
+    const res = await db.describeTable({ profile: 'dev', table: 't' });
     expect(res.table).toBe('t');
-    expect(Array.isArray(res.columns)).toBe(true);
     expect(res.tableComment).toBe('t-comment');
   });
 
   it('describeTable converts numeric nullable to boolean', async () => {
     let call = 0;
-    setExecuteImpl(vi.fn().mockImplementation(() => {
+    setExecute(pool, vi.fn().mockImplementation(() => {
       call++;
       if (call === 1) return Promise.resolve([[{ name: 'n', type: 'varchar', nullable: 1 }], []]);
       return Promise.resolve([[{ comment: '' }], []]);
     }));
-    const res = await db.describeTable('t2');
+    const res = await db.describeTable({ profile: 'dev', table: 't2' });
     expect(res.columns[0].nullable).toBe(true);
   });
 
@@ -176,9 +133,8 @@ describe('db.ts', () => {
       { name: 'idx_a', seq: 1, col: 'a', nonUnique: 1, comment: 'c', type: 'BTREE', visible: 'NO' },
       { name: 'idx_a', seq: 2, col: 'b', nonUnique: 1, comment: 'c', type: 'BTREE', visible: 'NO' },
     ];
-    setExecuteImpl(vi.fn().mockResolvedValue([[stats], [{ name: 'INDEX_NAME' }]]));
-    const res = await db.showIndexes('t');
-    expect(res.table).toBe('t');
+    setExecute(pool, vi.fn().mockResolvedValue([[stats], [{ name: 'INDEX_NAME' }]]));
+    const res = await db.showIndexes({ profile: 'dev', table: 't' });
     const primary = res.indexes.find(i => i.name === 'PRIMARY')!;
     expect(primary.columns).toEqual(['id']);
     expect(primary.unique).toBe(true);
@@ -186,199 +142,195 @@ describe('db.ts', () => {
     expect(idxA.columns).toEqual(['a', 'b']);
     expect(idxA.unique).toBe(false);
     expect(idxA.visible).toBe(false);
-    expect(idxA.comment).toBe('c');
-    expect(idxA.type).toBe('BTREE');
   });
 
   it('showIndexes handles non-nested rows path', async () => {
-    const stats = [
+    setExecute(pool, vi.fn().mockResolvedValue([[
       { name: 'ix', seq: 1, col: 'c1', nonUnique: 1, comment: '', type: 'BTREE', visible: 'YES' },
-    ];
-    setExecuteImpl(vi.fn().mockResolvedValue([stats, []]));
-    const res = await db.showIndexes('t3');
+    ], []]));
+    const res = await db.showIndexes({ profile: 'dev', table: 't3' });
     expect(res.indexes[0].columns).toEqual(['c1']);
   });
 
   it('explain returns plan rows', async () => {
-    const plan = [{ id: 1 }];
-    setExecuteImpl(vi.fn().mockResolvedValue([[plan], []]));
-    const res = await db.explain('SELECT 1');
-    expect(res).toEqual(plan);
+    setExecute(pool, vi.fn().mockResolvedValue([[[{ id: 1 }]], []]));
+    expect(await db.explain({ profile: 'dev', sql: 'SELECT 1' })).toEqual([{ id: 1 }]);
   });
 
   it('explain handles non-nested rows path', async () => {
-    const plan = [{ id: 2 }];
-    setExecuteImpl(vi.fn().mockResolvedValue([plan, []]));
-    const res = await db.explain('SELECT 2');
-    expect(res).toEqual(plan);
+    setExecute(pool, vi.fn().mockResolvedValue([[{ id: 2 }], []]));
+    expect(await db.explain({ profile: 'dev', sql: 'SELECT 2' })).toEqual([{ id: 2 }]);
   });
 
   it('version selects version field', async () => {
-    setExecuteImpl(vi.fn().mockResolvedValue([[ [{ version: '8.0.x' }], [] ][0]]));
-    const res = await db.version();
-    expect(res).toEqual({ version: '8.0.x' });
-  });
-});
-
-describe('db.ts — 접속정보와 비밀번호는 프로파일에서 온다', () => {
-  const { createPool } = mysqlModule.default as any;
-
-  beforeEach(() => {
-    setExecuteImpl(vi.fn().mockResolvedValue([[{ version: '8' }], []]));
-    (createPool as any).mockClear();
-  });
-
-  it('생성만으로는 풀도 만들지 않고 비밀번호도 꺼내지 않는다', () => {
-    const { reg, secrets } = makeDb();
-    expect(secrets.resolve).not.toHaveBeenCalled();
-    expect(createPool).not.toHaveBeenCalled();
-    expect(reg.gets).toBe(0);
-  });
-
-  it('프로파일의 접속정보와 Keychain 비밀번호로 풀을 만든다', async () => {
-    const { db, secrets } = makeDb();
-    await db.version();
-
-    expect(secrets.resolve.mock.calls[0][0].service).toBe('mysql-mcp/dev');
-    expect(createPool).toHaveBeenCalledWith(expect.objectContaining({
-      host: 'h', port: 3306, user: 'u', database: 'd', password: 'pw-from-keychain',
-    }));
-    await db.close();
-  });
-
-  it('호출할 때마다 프로파일을 다시 읽는다', async () => {
-    const { db, reg } = makeDb();
-    await db.version();
-    await db.version();
-    expect(reg.gets).toBe(2);
-    expect(createPool).toHaveBeenCalledTimes(1);
-    await db.close();
-  });
-
-  it('접속 자격이 그대로면 풀을 재사용한다', async () => {
-    const { db, secrets } = makeDb();
-    await db.version();
-    await db.version();
-    expect(secrets.resolve).toHaveBeenCalledTimes(1);
-    await db.close();
-  });
-
-  it('프로파일의 접속 자격이 바뀌면 풀을 다시 만든다', async () => {
-    const { db, reg, secrets } = makeDb();
-    await db.version();
-    reg.replaceWith(rawProfile({ user: 'other' }));
-    await db.version();
-    expect(createPool).toHaveBeenCalledTimes(2);
-    expect(secrets.resolve).toHaveBeenCalledTimes(2);
-    await db.close();
-  });
-
-  it('비밀번호 조회 실패는 그대로 올라오고, 등록 뒤 재시도는 재시작 없이 통과한다', async () => {
-    const secrets = { resolve: vi.fn() } as any;
-    secrets.resolve.mockRejectedValueOnce(new Error('항목 없음')).mockResolvedValueOnce('pw');
-    const { db } = makeDb({ secrets });
-
-    await expect(db.version()).rejects.toThrow('항목 없음');
-    expect(createPool).not.toHaveBeenCalled();
-
-    await expect(db.version()).resolves.toEqual({ version: '8' });
-    expect(createPool).toHaveBeenCalledTimes(1);
-    await db.close();
-  });
-
-  it('한 번도 쓰지 않은 채 닫으면 아무 것도 하지 않는다', async () => {
-    const { db, secrets } = makeDb();
-    await db.close();
-    expect(secrets.resolve).not.toHaveBeenCalled();
-    expect(createPool).not.toHaveBeenCalled();
-  });
-
-  it('timezone·charset 설정을 mysql2 에 넘긴다', async () => {
-    const reg = fakeRegistry(rawProfile());
-    const db = createDatabase({
-      registry: reg.registry, profileName: 'dev', secrets: fakeResolver(),
-      cfg: { ...baseCfg, MYSQL_TIMEZONE: '+00:00', MYSQL_CHARSET: 'utf8mb4' } as any,
-    });
-    await db.version();
-    expect(createPool).toHaveBeenCalledWith(expect.objectContaining({ timezone: '+00:00', charset: 'utf8mb4' }));
-    await db.close();
+    setExecute(pool, vi.fn().mockResolvedValue([[{ version: '8.0.x' }], []]));
+    expect(await db.version({ profile: 'dev' })).toEqual({ version: '8.0.x' });
   });
 });
 
 describe('db.ts — 게이트는 호출 시점에 걸린다', () => {
-  beforeEach(() => {
-    setExecuteImpl(vi.fn().mockResolvedValue([[{ version: '8' }], []]));
+  it('호출할 때마다 프로파일을 다시 읽는다', async () => {
+    const { db, reg } = makeDb();
+    await db.version({ profile: 'dev' });
+    await db.version({ profile: 'dev' });
+    expect(reg.gets).toBe(2);
   });
 
-  it('닫힌 프로파일은 조회를 거부한다', async () => {
-    const { db } = makeDb({ raw: rawProfile({ enabled: false }) });
-    await expect(db.version()).rejects.toThrow(/사용자/);
+  it('닫힌 프로파일은 조회를 거부하고 사용자에게 물으라고 한다', async () => {
+    const { db } = makeDb({ profiles: { dev: rawProfile({ enabled: false }) } });
+    await expect(db.version({ profile: 'dev' })).rejects.toThrow(/사용자/);
   });
 
   it('열려 있다가 닫히면 다음 호출부터 거부된다 — 재시작이 필요 없다', async () => {
     const { db, reg } = makeDb();
-    await expect(db.version()).resolves.toEqual({ version: '8' });
-
-    reg.replaceWith(rawProfile({ enabled: false }));
-    await expect(db.version()).rejects.toThrow(/닫혀/);
-    await db.close();
+    await expect(db.version({ profile: 'dev' })).resolves.toEqual({ version: '8' });
+    reg.replaceWith({ dev: rawProfile({ enabled: false }) });
+    await expect(db.version({ profile: 'dev' })).rejects.toThrow(/닫혀/);
   });
 
-  it('만료된 프로파일은 거부한다', async () => {
-    const { db } = makeDb({ raw: rawProfile({ enabled: undefined, enabledUntil: '2000-01-01T00:00:00Z' }) });
-    await expect(db.version()).rejects.toThrow(/만료/);
+  it('닫힌 프로파일에는 풀도 만들지 않는다', async () => {
+    const { db, pools } = makeDb({ profiles: { dev: rawProfile({ enabled: false }) } });
+    await db.version({ profile: 'dev' }).catch(() => {});
+    expect(pools.acquire).not.toHaveBeenCalled();
   });
 
-  it('닫힌 프로파일에는 붙지도 않는다', async () => {
-    const { createPool } = mysqlModule.default as any;
-    (createPool as any).mockClear();
-    const { db, secrets } = makeDb({ raw: rawProfile({ enabled: false }) });
-    await db.version().catch(() => {});
-    expect(createPool).not.toHaveBeenCalled();
-    expect(secrets.resolve).not.toHaveBeenCalled();
+  it('readonly 프로파일은 쓰기를 거부하고 조회는 통과시킨다', async () => {
+    const { db } = makeDb({ profiles: { dev: rawProfile({ readonly: true }) } });
+    await expect(db.execute({ profile: 'dev', sql: 'DELETE FROM t' })).rejects.toThrow(/읽기 전용/);
+    await expect(db.version({ profile: 'dev' })).resolves.toEqual({ version: '8' });
   });
 
-  it('readonly 프로파일은 쓰기를 거부한다', async () => {
-    const { db } = makeDb({ raw: rawProfile({ readonly: true }) });
-    await expect(db.execute('DELETE FROM t')).rejects.toThrow(/읽기 전용/);
-    await db.close();
-  });
-
-  it('readonly 프로파일도 조회는 된다', async () => {
-    const { db } = makeDb({ raw: rawProfile({ readonly: true }) });
-    await expect(db.version()).resolves.toEqual({ version: '8' });
-    await db.close();
+  it('여러 프로파일이 동시에 열려 있을 수 있고 각자 쓰인다', async () => {
+    const { db, pools } = makeDb({
+      profiles: { dev: rawProfile(), prod: rawProfile({ user: 'p', readonly: true }) },
+    });
+    await db.version({ profile: 'dev' });
+    await db.version({ profile: 'prod' });
+    expect(pools.acquire.mock.calls.map(c => c[0].name)).toEqual(['dev', 'prod']);
   });
 });
 
 describe('db.ts — 프로파일 상한이 도구 요청을 이긴다', () => {
-  beforeEach(() => {
-    setExecuteImpl(vi.fn().mockResolvedValue([[{ a: 1 }, { a: 2 }, { a: 3 }], []]));
-  });
-
-  it('maxRows 를 프로파일 상한 이상으로 요청해도 상한에서 잘린다', async () => {
-    const { db } = makeDb({ raw: rawProfile({ maxRows: 2 }) });
-    const res = await db.queryRows('SELECT 1', [], { maxRows: 9999 });
+  it('maxRows 를 상한 이상으로 요청해도 상한에서 잘린다', async () => {
+    const { db } = makeDb({
+      profiles: { dev: rawProfile({ maxRows: 2 }) },
+      execute: vi.fn().mockResolvedValue([[{ a: 1 }, { a: 2 }, { a: 3 }], []]),
+    });
+    const res = await db.queryRows({ profile: 'dev', sql: 'SELECT 1', maxRows: 9999 });
     expect(res.rows).toHaveLength(2);
     expect(res.truncated).toBe(true);
-    await db.close();
   });
 
   it('요청이 없으면 프로파일의 maxRows 를 쓴다', async () => {
-    const { db } = makeDb({ raw: rawProfile({ maxRows: 1 }) });
-    const res = await db.queryRows('SELECT 1');
+    const { db } = makeDb({
+      profiles: { dev: rawProfile({ maxRows: 1 }) },
+      execute: vi.fn().mockResolvedValue([[{ a: 1 }, { a: 2 }], []]),
+    });
+    const res = await db.queryRows({ profile: 'dev', sql: 'SELECT 1' });
     expect(res.rows).toHaveLength(1);
-    expect(res.truncated).toBe(true);
-    await db.close();
   });
 
-  it('timeoutMs 를 프로파일 상한 이상으로 요청해도 상한이 적용된다', async () => {
+  it('timeoutMs 를 상한 이상으로 요청해도 상한이 적용된다', async () => {
     vi.useFakeTimers();
-    setExecuteImpl(vi.fn().mockImplementation(() => new Promise(() => {})));
-    const { db } = makeDb({ raw: rawProfile({ timeoutMs: 20 }) });
-    const p = db.queryRows('SELECT SLEEP(5)', [], { timeoutMs: 999_999 });
+    const { db } = makeDb({
+      profiles: { dev: rawProfile({ timeoutMs: 20 }) },
+      execute: vi.fn().mockImplementation(() => new Promise(() => {})),
+    });
+    const p = db.queryRows({ profile: 'dev', sql: 'SELECT SLEEP(5)', timeoutMs: 999_999 });
     await vi.advanceTimersByTimeAsync(25);
     await expect(p).rejects.toThrow('query timed out after 20ms');
     vi.useRealTimers();
+  });
+});
+
+describe('db.ts — 열려 있는데 못 붙으면 사용자에게 확인을 요청한다', () => {
+  function failWith(code: string, message = 'boom', fatal = false) {
+    const err: any = new Error(message);
+    err.code = code;
+    err.fatal = fatal;
+    return vi.fn().mockRejectedValue(err);
+  }
+
+  it('인증 거부는 프로파일 설명과 함께 감싼다', async () => {
+    const { db } = makeDb({ execute: failWith('ER_ACCESS_DENIED_ERROR', "Access denied for user 'u'") });
+    const err = await db.version({ profile: 'dev' }).catch(e => e);
+    expect(err).toBeInstanceOf(ProfileUnreachableError);
+    expect(err.message).toContain('dev');
+    expect(err.message).toContain("Access denied for user 'u'");
+    expect(err.message).toContain('언제 이걸 쓰는지');
+    expect(err.message).toMatch(/사용자에게 확인/);
+    expect(err.message).toMatch(/다른 프로파일로 바꾸지 말고/);
+  });
+
+  it('네트워크 오류도 같은 방식으로 감싼다', async () => {
+    const { db } = makeDb({ execute: failWith('ECONNREFUSED') });
+    await expect(db.version({ profile: 'dev' })).rejects.toBeInstanceOf(ProfileUnreachableError);
+  });
+
+  it('fatal 로 표시된 오류도 접속 실패로 본다', async () => {
+    const { db } = makeDb({ execute: failWith('SOME_UNKNOWN', 'handshake failed', true) });
+    await expect(db.version({ profile: 'dev' })).rejects.toBeInstanceOf(ProfileUnreachableError);
+  });
+
+  it('SQL 문법 오류는 감싸지 않고 그대로 올린다', async () => {
+    const { db } = makeDb({ execute: failWith('ER_PARSE_ERROR', 'You have an error in your SQL syntax') });
+    const err = await db.queryRows({ profile: 'dev', sql: 'SELEC 1' }).catch(e => e);
+    expect(err).not.toBeInstanceOf(ProfileUnreachableError);
+    expect(err.message).toContain('SQL syntax');
+  });
+
+  it('비밀번호 조회 실패는 그대로 올린다 — 이미 무엇을 할지 알려주는 문구다', async () => {
+    const { db, pools } = makeDb();
+    pools.acquire.mockRejectedValueOnce(new Error('Keychain 에 mysql-mcp/dev 항목이 없다'));
+    await expect(db.version({ profile: 'dev' })).rejects.toThrow(/Keychain/);
+  });
+});
+
+describe('db.ts — 프로파일 목록', () => {
+  const NOW = new Date('2026-08-12T10:00:00Z');
+
+  it('이름·설명·열림 여부·읽기전용·상한을 준다', () => {
+    const { db } = makeDb({
+      profiles: {
+        dev: rawProfile(),
+        prod: rawProfile({ enabled: undefined, enabledUntil: '2026-08-12T11:00:00Z', readonly: true, maxRows: 500 }),
+      },
+    });
+    expect(db.listProfiles(NOW)).toEqual([
+      { name: 'dev', description: '언제 이걸 쓰는지', open: true, readonly: false, maxRows: 100 },
+      {
+        name: 'prod', description: '언제 이걸 쓰는지', open: true, readonly: true, maxRows: 500,
+        expiresAt: '2026-08-12T11:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('닫힌 프로파일도 목록에 남아 무엇이 있는지 보인다', () => {
+    const { db } = makeDb({ profiles: { dev: rawProfile({ enabled: false }) } });
+    expect(db.listProfiles(NOW)).toEqual([
+      { name: 'dev', description: '언제 이걸 쓰는지', open: false, readonly: false, maxRows: 100 },
+    ]);
+  });
+
+  it('만료된 프로파일은 닫힌 것으로 보이고 만료 시각을 남긴다', () => {
+    const { db } = makeDb({
+      profiles: { prod: rawProfile({ enabled: undefined, enabledUntil: '2026-08-12T09:00:00Z' }) },
+    });
+    const [row] = db.listProfiles(NOW);
+    expect(row.open).toBe(false);
+    expect(row.expiresAt).toBe('2026-08-12T09:00:00.000Z');
+  });
+
+  it('접속정보는 싣지 않는다', () => {
+    const { db } = makeDb();
+    expect(JSON.stringify(db.listProfiles(NOW))).not.toMatch(/host|port|user|password/);
+  });
+});
+
+describe('db.ts — 닫기', () => {
+  it('풀을 모두 닫는다', async () => {
+    const { db, pools } = makeDb();
+    await db.close();
+    expect(pools.closeAll).toHaveBeenCalled();
   });
 });

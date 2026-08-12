@@ -1,10 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Database } from '../db.js';
-
-export const showIndexesInput = z.object({
-  table: z.string().min(1).describe('Table name to list indexes for'),
-});
+import { profileArg, type ProfileChoice } from './profile-arg.js';
 
 export const showIndexesOutput = z.object({
   table: z.string(),
@@ -18,19 +15,26 @@ export const showIndexesOutput = z.object({
   }))
 });
 
-export function registerShowIndexesTool(server: McpServer, db: Database) {
+export function buildShowIndexesInput(choices: ProfileChoice[]) {
+  return z.object({
+    profile: profileArg(choices),
+    table: z.string().min(1).describe('Table name to list indexes for'),
+  });
+}
+
+export function registerShowIndexesTool(server: McpServer, db: Database, opts: { choices: ProfileChoice[] }) {
   server.registerTool('show_indexes', {
     description: 'Show index definitions for a given table',
-    inputSchema: showIndexesInput,
+    inputSchema: buildShowIndexesInput(opts.choices),
     outputSchema: showIndexesOutput,
-  }, async ({ table }: { table: string }) => {
+  }, async ({ profile, table }: { profile: string; table: string }) => {
     try {
-      const res = await db.showIndexes(table);
+      const res = await db.showIndexes({ profile, table });
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }], structuredContent: res } as any;
     } catch (err: any) {
       const e = err instanceof Error ? err : new Error(String(err));
       const ts = new Date().toISOString();
-      const input = { table };
+      const input = { profile, table };
       process.stderr.write(`[${ts}] tool show_indexes failed: ${e.message}\ninput: ${JSON.stringify(input)}\nstack: ${e.stack ?? 'no-stack'}\n`);
       throw err;
     }
