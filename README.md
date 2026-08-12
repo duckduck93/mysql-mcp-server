@@ -25,12 +25,26 @@ Required:
 
 Password (not part of the config — resolved at connection time from the declared source):
 - MYSQL_SECRET_SOURCE: keychain | env (default: keychain)
-  - `keychain` (macOS only): read from the login keychain at connection time.
-    Register once with `security add-generic-password -U -s "mysql-mcp/<profile>" -a "<user>" -w`
-    (omit the value after `-w` so it is prompted for and never lands in shell history).
+  - `keychain` (macOS only): read from the login keychain at connection time. See "Registering
+    passwords in the keychain" below.
   - `env`: read from MYSQL_PASSWORD. For platforms with no secure store implementation yet
     (Windows, Linux). There is no fallback between sources — the declared one is the only one used.
 - MYSQL_PASSWORD: Password. Only read when MYSQL_SECRET_SOURCE=env
+
+Registering passwords in the keychain (macOS)
+
+Run `npm run keychain` to see which profiles still need an entry and get the exact command
+for each. It only reads item attributes, never the secret, so it never triggers an approval
+prompt. To register manually:
+
+```
+security add-generic-password -U -s "mysql-mcp/<profile>" -a "<user>" -w
+```
+
+Leave the value after `-w` empty — `security` then prompts for it, so the password never lands
+in shell history. Add `-T ""` for profiles that should ask for approval on every access; without
+it the item is readable by `security` with no prompt. In the approval dialog choose "Allow", not
+"Always Allow" — the latter permanently trusts `/usr/bin/security` for that item.
 
 Optional:
 - MYSQL_SSL: off | required | verify_ca (default: off)

@@ -13,6 +13,7 @@
     "start": "node dist/index.js",
     "dev": "node --enable-source-maps --watch dist/index.js",
     "prepare": "npm run build",
+    "keychain": "node scripts/keychain.mjs",
     "test": "vitest run --coverage"
   },
   "dependencies": {
