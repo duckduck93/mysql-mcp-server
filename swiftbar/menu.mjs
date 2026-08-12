@@ -81,6 +81,17 @@ function remaining(until, now) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+/**
+ * 설명의 첫 문장만 남긴다.
+ *
+ * description 은 Agent 가 프로파일을 고르는 근거라 길게 쓰도록 되어 있다.
+ * 메뉴에 그대로 붙이면 폭이 감당이 안 되므로 사람이 훑을 만큼만 자른다.
+ */
+function firstSentence(text, max = 40) {
+  const [first] = text.split(/(?<=\.)\s+/);
+  return first.length > max ? `${first.slice(0, max - 1)}…` : first;
+}
+
 function fail(lines) {
   console.log('⚠️');
   console.log('---');
@@ -145,7 +156,9 @@ for (const p of profiles) {
   } else {
     console.log(`⚪ ${p.name}${tag} — 열기 | ${click('open', p.name)}`);
   }
-  console.log(`-- ${p.description} | color=#888888`);
+  // 사람이 메뉴에서 확인하고 싶은 것은 "지금 어느 계정으로 어디에 붙나" 다.
+  console.log(`-- ${p.user} @ ${p.database}:${p.port} | color=#888888`);
+  console.log(`-- ${firstSentence(p.description)} | color=#888888`);
 }
 
 console.log('---');
