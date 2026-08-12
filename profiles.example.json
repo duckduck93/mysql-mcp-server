@@ -1,0 +1,54 @@
+{
+  "local-dev": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "database": "appdb",
+    "user": "app_dev",
+    "enabled": true,
+    "readonly": false,
+    "production": false,
+    "maxRows": 10000,
+    "label": "dev",
+    "description": "Local development database. Use this for schema checks and ad-hoc queries."
+  },
+
+  "staging": {
+    "host": "db-staging.example.com",
+    "port": 3306,
+    "database": "appdb",
+    "user": "app_dev",
+    "enabled": true,
+    "readonly": false,
+    "production": false,
+    "maxRows": 10000,
+    "label": "stg",
+    "description": "Staging database. Use when reproducing something that only shows up with staging data."
+  },
+
+  "staging-via-gateway": {
+    "host": "db-staging.example.com",
+    "port": 3306,
+    "database": "appdb",
+    "user": "svc_gateway",
+    "enabled": false,
+    "readonly": false,
+    "production": false,
+    "maxRows": 10000,
+    "label": "stg-gw",
+    "description": "Same staging database, reached with the access-gateway account. Use when the direct account is rejected — the two accounts are mutually exclusive depending on whether the gateway is on."
+  },
+
+  "prod": {
+    "host": "db-prod.example.com",
+    "port": 3306,
+    "database": "appdb",
+    "user": "app_readonly",
+    "enabledUntil": null,
+    "readonly": true,
+    "production": true,
+    "maxRows": 500,
+    "timeoutMs": 15000,
+    "label": "prod",
+    "description": "Production database. Only when the user opens it for a specific investigation, never for exploration."
+  }
+}

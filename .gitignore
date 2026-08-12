@@ -227,6 +227,8 @@ dist
 # 사내 접속정보 — 이 저장소 origin 은 공개 github.com 이므로 절대 커밋 금지
 profiles.json
 profiles.*.json
+# 예외는 이 파일 하나뿐이다. 자리표시자만 들어가며 실제 접속정보를 넣지 않는다.
+!profiles.example.json
 diag.mjs
 dbsafer-diag.mjs
 .scratch/
