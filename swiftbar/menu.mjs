@@ -3,12 +3,10 @@
 //   node menu.mjs                      메뉴를 그린다 (SwiftBar 가 stdout 을 읽는다)
 //   node menu.mjs open  <이름> [분]     연다. 분을 주면 그때 만료된다
 //   node menu.mjs close <이름>          닫는다
-//   node menu.mjs use   <이름>          활성 프로파일을 바꾼다 (/mcp 재접속 필요)
 //
 // 열림 판정은 서버와 같은 코드(dist/profile-registry.js)를 쓴다. 따로 계산하면
 // 메뉴에 보이는 것과 실제 차단이 어긋난다.
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +15,6 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
 const PROFILES = path.join(REPO, 'profiles.json');
 const STATE = path.join(REPO, '.swiftbar-state.json');
-const CLAUDE_JSON = path.join(os.homedir(), '.claude.json');
 
 /** 운영을 열 때 고를 수 있는 시간. 짧은 것이 먼저 나와 실수로 긴 걸 누를 확률을 줄인다. */
 const DURATIONS = [
@@ -58,16 +55,6 @@ if (action === 'open' || action === 'close') {
     target.enabled = true;
   }
   writeProfilesRaw(raw);
-  process.exit(0);
-}
-
-if (action === 'use') {
-  const conf = JSON.parse(fs.readFileSync(CLAUDE_JSON, 'utf8'));
-  const entry = conf.mcpServers?.['mysql-mcp-server'];
-  if (!entry) process.exit(1);
-  entry.env.MYSQL_PROFILE = name;
-  fs.writeFileSync(CLAUDE_JSON, JSON.stringify(conf, null, 2));
-  notify('mysql-mcp', `활성 프로파일을 ${name} 로 바꿨습니다. /mcp 로 재접속하세요.`);
   process.exit(0);
 }
 
@@ -117,12 +104,6 @@ try {
   fail([`profiles.json 을 읽지 못했습니다 | color=red`, `${e.message.slice(0, 120)} | color=red`]);
 }
 
-let active = '(알 수 없음)';
-try {
-  active = JSON.parse(fs.readFileSync(CLAUDE_JSON, 'utf8'))
-    .mcpServers?.['mysql-mcp-server']?.env?.MYSQL_PROFILE ?? '(설정 없음)';
-} catch {}
-
 const now = new Date();
 const open = profiles.filter(p => p.isOpenAt(now));
 const openGated = open.filter(p => p.isGated);
@@ -136,7 +117,7 @@ if (openGated.length === 0) {
 }
 
 console.log('---');
-console.log(`활성 프로파일: ${active} | color=#888888`);
+console.log(`열려 있는 프로파일만 Agent 가 쓸 수 있습니다 | color=#888888 size=11`);
 console.log('---');
 
 for (const p of profiles) {
@@ -145,7 +126,10 @@ for (const p of profiles) {
 
   if (isOpen) {
     // 닫는 것은 한 번의 클릭으로. 급할 때 빨라야 한다.
-    console.log(`● ${p.name}${until} — 닫기 | ${click('close', p.name)}`);
+    // 시각으로 닫히는 프로파일이 열려 있는 것만 붉게 띄운다. 늘 열려 있는 개발까지
+    // 물들이면 경고색이 상시 켜져 있어 의미를 잃는다.
+    const color = p.isGated ? ' color=red' : '';
+    console.log(`${p.isGated ? '🔴' : '●'} ${p.name}${until} — 닫기 | ${click('close', p.name)}${color}`);
   } else if (p.isGated) {
     // 여는 것은 두 번의 클릭 + 시간 선택으로. 실수로 열리는 것을 막는다.
     console.log(`○ ${p.name} — 열기`);
@@ -156,10 +140,6 @@ for (const p of profiles) {
     console.log(`○ ${p.name} — 열기 | ${click('open', p.name)}`);
   }
   console.log(`-- ${p.description} | color=#888888`);
-  if (p.name !== active) {
-    console.log(`-- 이 프로파일을 활성으로 | ${click('use', p.name)}`);
-    console.log('-- (바꾸면 Claude Code 에서 /mcp 재접속 필요) | color=#888888 size=11');
-  }
 }
 
 console.log('---');
