@@ -118,9 +118,20 @@ security add-generic-password -U -s "mysql-mcp/<profile>" -a "<user>" -w
 ```
 
 Leave the value after `-w` empty — `security` then prompts for it, so the password never lands in
-shell history. Add `-T ""` for profiles that should ask for approval on every access; without it
-the item is readable by `security` with no prompt. In the approval dialog choose "Allow", not
-"Always Allow" — the latter permanently trusts `/usr/bin/security` for that item.
+shell history.
+
+**Register every profile with `-T ""`.** Without it the item is readable by anything that can run
+`security` — including an agent with shell access — and no approval dialog appears. With it, each
+read requires approval. The password is read once when the connection pool is created, so in
+practice the dialog appears once per profile per server session, not per query.
+
+In the approval dialog choose "Allow", not "Always Allow" — the latter permanently trusts
+`/usr/bin/security` for that item and removes the protection.
+
+The exception is a profile used by unattended runs (a scheduler, CI). Nobody is there to approve,
+so the read blocks and times out. Drop `-T ""` for those, knowing what it costs.
+
+`-T ""` cannot be added to an existing item in place; delete it and register again.
 
 Build & Run (local)
 1) Install dependencies and build
